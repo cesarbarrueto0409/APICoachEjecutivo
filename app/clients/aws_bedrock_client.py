@@ -119,6 +119,9 @@ class AWSBedrockClient(IAIClient):
             # Extract text from response
             analysis_text = response["output"]["message"]["content"][0]["text"]
             
+            # Clean markdown code blocks from JSON responses
+            analysis_text = self._clean_markdown_json(analysis_text)
+            
             # Extract metadata
             metadata = {
                 "model": self._model_id,
@@ -151,3 +154,11 @@ class AWSBedrockClient(IAIClient):
             }
         except (KeyError, IndexError, TypeError) as e:
             raise RuntimeError("Unexpected response structure from Bedrock converse call") from e
+    
+    def _clean_markdown_json(self, text: str) -> str:
+        """Remove markdown code block formatting from JSON responses."""
+        # Remove ```json and ``` markers
+        text = re.sub(r'^```json\s*\n', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^```\s*\n?', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\n```\s*$', '', text, flags=re.MULTILINE)
+        return text.strip()
