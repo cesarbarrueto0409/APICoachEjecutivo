@@ -1,7 +1,6 @@
 """Configuration management for the AWS Bedrock API Service."""
 
 import os
-from typing import Optional
 from dotenv import load_dotenv
 
 
@@ -19,6 +18,16 @@ class Settings:
             'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
         )
         # AWS credentials are handled by boto3 from environment or ~/.aws/credentials
+        
+        # SendGrid configuration
+        self.sendgrid_api_key: str = os.getenv('SENDGRID_API_KEY', '')
+        self.sendgrid_endpoint: str = os.getenv(
+            'SENDGRID_ENDPOINT',
+            'https://api.sendgrid.com/v3/mail/send'
+        )
+        self.sendgrid_from_email: str = os.getenv('SENDGRID_FROM_EMAIL', '')
+        self.sendgrid_test_email: str = os.getenv('SENDGRID_TEST_EMAIL', '')
+        
         self.api_host: str = os.getenv('API_HOST', '0.0.0.0')
         self.api_port: int = int(os.getenv('API_PORT', '8000'))
     
@@ -34,6 +43,8 @@ class Settings:
             missing_configs.append('AWS_REGION')
         if not self.aws_bedrock_model_id:
             missing_configs.append('AWS_BEDROCK_MODEL_ID')
+        if not self.sendgrid_api_key:
+            missing_configs.append('SENDGRID_API_KEY')
         
         if missing_configs:
             missing_list = ', '.join(missing_configs)
