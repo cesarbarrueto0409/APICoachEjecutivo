@@ -508,16 +508,3 @@ O visita la documentación interactiva en `http://localhost:8000/docs` y prueba 
 - Comprueba que `current_date` esté en formato correcto (YYYY-MM-DD)
 - Revisa que los datos del mes/año solicitado existan
 
-## 📝 Licencia
-
-[Especificar licencia]
-
-## 👥 Contribución
-
-[Instrucciones para contribuir al proyecto]
-
-## 📞 Soporte
-
-Para soporte o consultas:
-- Email: [email de soporte]
-- Issues: [URL del repositorio]/issues
