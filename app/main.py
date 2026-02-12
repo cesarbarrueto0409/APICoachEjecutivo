@@ -9,7 +9,7 @@ from app.config.settings import Settings
 from app.clients.mongodb_client import MongoDBClient
 from app.clients.aws_bedrock_client import AWSBedrockClient
 from app.services.analysis_service import AnalysisService
-from app.api.routes import router, set_analysis_service
+from app.api.routes import router, set_analysis_service, set_settings
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ def setup_dependencies(app: FastAPI, settings: Settings) -> None:
     
     analysis_service = AnalysisService(_mongodb_client, _aws_bedrock_client)
     set_analysis_service(analysis_service)
+    set_settings(settings)
     
     logger.info("Dependencies configured")
 

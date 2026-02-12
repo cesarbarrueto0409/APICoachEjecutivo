@@ -1,7 +1,7 @@
 """
-Azure AI API Service
+AWS Bedrock API Service
 
-A Python REST API service that integrates MongoDB data retrieval with Azure AI model inference.
+A Python REST API service that integrates MongoDB data retrieval with AWS Bedrock AI for sales analysis.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

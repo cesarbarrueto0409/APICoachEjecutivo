@@ -14,29 +14,32 @@ class AnalysisRequest(BaseModel):
     """Request model for the analysis endpoint."""
     
     current_date: str = Field(..., description="Current date for analysis context (YYYY-MM-DD)", example="2026-02-11")
+    is_testing: bool = Field(
+        default=False,
+        description="If True, send all emails to test address",
+        example=False
+    )
     
     class Config:
         json_schema_extra = {
             "example": {
-                "current_date": "2026-02-11"
+                "current_date": "2026-02-11",
+                "is_testing": False
             }
         }
 
 
-class AnalysisResponse(BaseModel):
-    """Response model for the analysis endpoint."""
+class EmailNotification(BaseModel):
+    """Model for individual email notification result."""
     
-    status: str = Field(..., description="'success' or 'error'", example="success")
-    data_count: int = Field(..., ge=0, description="Number of documents analyzed", example=42)
-    analysis: Dict[str, Any] = Field(..., description="AI analysis results", example={"summary": "Analysis results..."})
-    error: Optional[str] = Field(default=None, description="Error message if failed", example=None)
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "status": "success",
-                "data_count": 42,
-                "analysis": {"summary": "Sales analysis shows positive trends"},
-                "error": None
-            }
-        }
+    ejecutivo: str = Field(..., description="Name of ejecutivo")
+    recipient: Optional[str] = Field(None, description="Email recipient")
+    original_recipient: Optional[str] = Field(
+        None,
+        description="Original recipient (when in testing mode)"
+    )
+    subject: Optional[str] = Field(None, description="Email subject")
+    body: Optional[str] = Field(None, description="Email body content")
+    status: str = Field(..., description="'success' or 'failed'")
+    status_code: Optional[int] = Field(None, description="HTTP status code")
+    error: Optional[str] = Field(None, description="Error message if failed")
