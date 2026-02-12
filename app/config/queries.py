@@ -30,7 +30,7 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                                 "$match": {
                                     "$expr": {
                                         "$and": [
-                                            {"$eq": ["$rut_cliente", "$rut"]},
+                                            {"$eq": ["$rut_cliente", "$$rut"]},
                                             {"$eq": ["$agno", year]},
                                             {"$eq": ["$mes", month]}
                                         ]
