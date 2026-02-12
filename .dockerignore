@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.pytest_cache/
+*.pyc
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+.kiro/
+*.swp
+*.swo
+*.code-workspace
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (excepto README principal)
+*.md
+!README.md
+
+# Azure Functions
+.funcignore
+local.settings.json
+.azure/
+.python_packages/
+__blobstorage__/
+__queuestorage__/
+__azurite_db*__.json
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Scripts
+*.bat
+*.ps1
+*.sh
+
+# Tests (opcional, comentar si quieres incluir tests)
+# tests/
+# test_*.py
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
