@@ -148,3 +148,94 @@ class TestSettings:
         assert 'mongodb://testhost:27017' in repr_str
         assert 'test_db' in repr_str
         assert 'us-east-1' in repr_str
+
+
+class TestSendGridConfiguration:
+    """Test suite for SendGrid configuration in Settings class."""
+    
+    def test_sendgrid_environment_variables_loaded(self, monkeypatch):
+        """Test loading of SendGrid environment variables."""
+        # Set up all environment variables including SendGrid
+        monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_api_key_12345')
+        monkeypatch.setenv('SENDGRID_ENDPOINT', 'https://test.sendgrid.com/v3/mail/send')
+        monkeypatch.setenv('SENDGRID_FROM_EMAIL', 'test@example.com')
+        monkeypatch.setenv('SENDGRID_TEST_EMAIL', 'testuser@example.com')
+        
+        settings = Settings()
+        
+        # Verify SendGrid configuration is loaded correctly
+        assert settings.sendgrid_api_key == 'SG.test_api_key_12345'
+        assert settings.sendgrid_endpoint == 'https://test.sendgrid.com/v3/mail/send'
+        assert settings.sendgrid_from_email == 'test@example.com'
+        assert settings.sendgrid_test_email == 'testuser@example.com'
+    
+    def test_sendgrid_default_values(self, monkeypatch):
+        """Test default values for optional SendGrid variables."""
+        # Set only required environment variables (not SendGrid optional ones)
+        monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_api_key')
+        
+        settings = Settings()
+        
+        # Verify default values are used for optional SendGrid config
+        assert settings.sendgrid_endpoint == 'https://api.sendgrid.com/v3/mail/send'
+        assert settings.sendgrid_from_email == 'notificador@infotest.chilexpress.cl'
+        assert settings.sendgrid_test_email == 'cbarrueto@chilexpress.cl'
+    
+    def test_validate_missing_sendgrid_api_key(self, monkeypatch):
+        """Test validation raises error for missing SENDGRID_API_KEY."""
+        # Set all required config except SENDGRID_API_KEY
+        monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        # Set SENDGRID_API_KEY to empty string to simulate missing
+        monkeypatch.setenv('SENDGRID_API_KEY', '')
+        
+        settings = Settings()
+        
+        # Verify validation fails with appropriate error
+        with pytest.raises(ValueError) as exc_info:
+            settings.validate()
+        
+        assert 'SENDGRID_API_KEY' in str(exc_info.value)
+        assert 'Missing required configuration' in str(exc_info.value)
+    
+    def test_validate_success_with_sendgrid(self, monkeypatch):
+        """Test validation passes with all required config including SendGrid."""
+        # Set up complete environment including SendGrid
+        monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_api_key')
+        
+        settings = Settings()
+        
+        # Should not raise any exception
+        settings.validate()
+    
+    def test_sendgrid_api_key_empty_string_fails_validation(self, monkeypatch):
+        """Test that empty string for SENDGRID_API_KEY fails validation."""
+        # Set all required config with empty SENDGRID_API_KEY
+        monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', '')
+        
+        settings = Settings()
+        
+        # Verify validation fails for empty API key
+        with pytest.raises(ValueError) as exc_info:
+            settings.validate()
+        
+        assert 'SENDGRID_API_KEY' in str(exc_info.value)
+        assert 'Missing required configuration' in str(exc_info.value)

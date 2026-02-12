@@ -1,222 +1,153 @@
-# 📊 Sales Analysis API with AWS Bedrock
+# Coach Ejecutivo - Sistema de Análisis de Ventas con IA
 
-> Intelligent sales analysis API powered by AWS Bedrock (Nova Pro) and MongoDB, providing automated insights and recommendations for sales executives.
+Sistema automatizado de análisis de ventas que utiliza AWS Bedrock (IA) para generar recomendaciones personalizadas para ejecutivos de ventas, con notificaciones por email vía SendGrid.
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+## 📋 Descripción
 
----
+Este sistema analiza datos de ventas, clientes, reclamos y retiros desde MongoDB, genera análisis inteligentes usando AWS Bedrock, y envía reportes personalizados por email a cada ejecutivo con:
 
-## 📑 Table of Contents
+- **Métricas de ventas**: Avance vs meta, ritmo diario, proyecciones
+- **Análisis de cartera**: Clientes activos, en riesgo, con reclamos
+- **Sugerencias específicas**: Acciones concretas con clientes prioritarios (máximo 3 por ejecutivo)
+- **Alertas operacionales**: Reclamos activos, problemas de retiros, clientes en riesgo crítico
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Getting Started](#-getting-started)
-- [Usage](#-usage)
-- [API Documentation](#-api-documentation)
-- [Project Structure](#-project-structure)
-- [How It Works](#-how-it-works)
-- [Deployment](#-deployment)
-
----
-
-## 🎯 Overview
-
-This API provides intelligent sales analysis by combining real-time data from MongoDB with AI-powered insights from AWS Bedrock. It analyzes sales performance, calculates metrics, and generates actionable recommendations for sales executives.
-
-### Key Capabilities
-
-- 📈 **Real-time Analysis**: Process sales data dynamically based on date
-- 🤖 **AI-Powered Insights**: Leverage AWS Bedrock Nova Pro for intelligent analysis
-- 📊 **Performance Metrics**: Calculate sales pace, achievement rates, and portfolio activation
-- 🎯 **Smart Recommendations**: Generate specific, actionable advice for each executive
-- 🔄 **Dynamic Queries**: MongoDB aggregation pipelines that adapt to the analysis date
-
----
-
-## ✨ Features
-
-- **Dynamic Date-Based Analysis**: Analyze sales for any specific date
-- **Executive Performance Tracking**: Individual metrics and status for each sales executive
-- **Sales Pace Calculation**: Compare actual vs required daily sales velocity
-- **Portfolio Analysis**: Track client activation and engagement rates
-- **AI-Generated Recommendations**: Personalized action items for each executive
-- **Alert System**: Automatic detection of performance issues
-- **Cost Tracking**: Monitor AWS Bedrock token usage and costs
-- **RESTful API**: Clean, documented endpoints with Swagger UI
-- **Docker Support**: Easy deployment with Docker Compose
-
----
-
-## 🏗️ Architecture
+## 🏗️ Arquitectura
 
 ```
-┌─────────────────┐
-│   Client/User   │
-└────────┬────────┘
-         │ HTTP POST /analyze
-         ▼
-┌─────────────────────────────────┐
-│      FastAPI Application        │
-│  ┌───────────────────────────┐ │
-│  │  Analysis Service         │ │
-│  │  - Query Generation       │ │
-│  │  - Data Processing        │ │
-│  │  - AI Integration         │ │
-│  └───────────────────────────┘ │
-└────┬──────────────────────┬────┘
-     │                      │
-     ▼                      ▼
-┌──────────────┐    ┌──────────────────┐
-│   MongoDB    │    │  AWS Bedrock     │
-│   Atlas      │    │  (Nova Pro)      │
-│              │    │                  │
-│ - Sales Data │    │ - AI Analysis    │
-│ - Goals      │    │ - Insights       │
-│ - Clients    │    │ - Recommendations│
-└──────────────┘    └──────────────────┘
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐
+│   MongoDB   │─────▶│  FastAPI     │─────▶│ AWS Bedrock │
+│  (Datos)    │      │  (Orquesta)  │      │    (IA)     │
+└─────────────┘      └──────────────┘      └─────────────┘
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │   SendGrid   │
+                     │   (Email)    │
+                     └──────────────┘
 ```
 
----
+### Componentes Principales
 
-## 🛠️ Tech Stack
+1. **FastAPI**: API REST que orquesta el flujo completo
+2. **MongoDB**: Base de datos con información de ventas, clientes, reclamos, retiros
+3. **AWS Bedrock**: Servicio de IA para análisis y generación de recomendaciones
+4. **SendGrid**: Servicio de envío de emails con reportes HTML
 
-### Backend
-- **FastAPI** - Modern, fast web framework for building APIs
-- **Python 3.11+** - Programming language
-- **Pydantic** - Data validation using Python type annotations
-- **Uvicorn** - ASGI server for production
+## 🚀 Instalación
 
-### Data & AI
-- **MongoDB Atlas** - Cloud database for sales data
-- **AWS Bedrock** - AI service (Nova Pro model)
-- **PyMongo** - MongoDB driver for Python
+### Requisitos Previos
 
-### DevOps
-- **Docker** - Containerization
-- **Docker Compose** - Multi-container orchestration
+- Python 3.11+
+- MongoDB (acceso a base de datos)
+- Cuenta AWS con acceso a Bedrock
+- Cuenta SendGrid con API Key
+- Docker (opcional)
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.11 or higher
-- Docker and Docker Compose (optional, for containerized deployment)
-- MongoDB Atlas account (or local MongoDB instance)
-- AWS Bedrock access with Nova Pro model
-
-### Installation
-
-1. **Clone the repository**
+### Instalación Local
 
 ```bash
-git clone https://github.com/yourusername/sales-analysis-api.git
-cd sales-analysis-api
-```
+# Clonar repositorio
+git clone <repository-url>
+cd <repository-name>
 
-2. **Create virtual environment**
-
-```bash
+# Crear entorno virtual
 python -m venv venv
+source venv/bin/activate  # En Windows: venv\Scripts\activate
 
-# Windows
-venv\Scripts\activate
-
-# Linux/Mac
-source venv/bin/activate
-```
-
-3. **Install dependencies**
-
-```bash
+# Instalar dependencias
 pip install -r requirements.txt
+
+# Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales
 ```
 
-### Configuration
-
-Create a `.env` file in the root directory with the following variables:
+### Instalación con Docker
 
 ```bash
-# MongoDB Configuration
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/?retryWrites=true&w=majority
-MONGODB_DATABASE=your_database_name
+# Construir y levantar contenedor
+docker-compose up -d
 
-# AWS Bedrock Configuration
+# Ver logs
+docker-compose logs -f
+```
+
+## ⚙️ Configuración
+
+### Variables de Entorno (.env)
+
+```env
+# MongoDB
+MONGODB_URI=mongodb://usuario:password@host:27017/
+MONGODB_DATABASE=nombre_base_datos
+
+# AWS Bedrock
 AWS_REGION=us-east-1
-AWS_BEDROCK_MODEL_ID=amazon.nova-pro-v1:0
-AWS_BEARER_TOKEN_BEDROCK=your_aws_bearer_token
+AWS_BEDROCK_MODEL_ID=arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1
+AWS_ACCESS_KEY_ID=tu_access_key
+AWS_SECRET_ACCESS_KEY=tu_secret_key
 
-# API Configuration
+# SendGrid
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxx
+SENDGRID_FROM_EMAIL=noreply@tudominio.com
+SENDGRID_TEST_EMAIL=test@tudominio.com
+
+# API
 API_HOST=0.0.0.0
 API_PORT=8000
 ```
 
-#### Configuration Details
+### Colecciones MongoDB Requeridas
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `MONGODB_URI` | MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/` |
-| `MONGODB_DATABASE` | Database name | `sales_db` |
-| `AWS_REGION` | AWS region for Bedrock | `us-east-1` |
-| `AWS_BEDROCK_MODEL_ID` | Bedrock model identifier | `amazon.nova-pro-v1:0` |
-| `AWS_BEARER_TOKEN_BEDROCK` | AWS authentication token | Your token |
-| `API_HOST` | API host address | `0.0.0.0` |
-| `API_PORT` | API port number | `8000` |
+El sistema consulta las siguientes colecciones:
 
-> ⚠️ **Security Note**: Never commit your `.env` file to version control. It's already included in `.gitignore`.
+1. **clientes_por_ejecutivo**: Asignación de clientes a ejecutivos
+2. **sales_last_month**: Ventas del mes actual
+3. **clients_data**: Métricas de riesgo y comportamiento de clientes
+4. **claims_last_month**: Reclamos del mes actual
+5. **pickup_last_month**: Retiros/entregas del mes actual
+6. **clients_recomendations**: Recomendaciones previas de Bedrock
+7. **sales_goal**: Metas de ventas por ejecutivo
 
----
+## 📡 Uso de la API
 
-## 💻 Usage
-
-### Running with Docker
-
-The easiest way to run the application:
+### Iniciar Servidor
 
 ```bash
-# Start the application
-docker-compose up
+# Desarrollo
+uvicorn app.main:app --reload
 
-# Run in detached mode
-docker-compose up -d
-
-# Stop the application
-docker-compose down
+# Producción
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-The API will be available at: **http://localhost:8000**
+### Endpoints Disponibles
 
-### Running Locally
+| Método | Endpoint | Descripción | Tag |
+|--------|----------|-------------|-----|
+| GET | `/api/health` | Health check general | health |
+| GET | `/api/health/mongodb` | Verificar conexión MongoDB | health |
+| GET | `/api/health/bedrock` | Verificar conexión AWS Bedrock | health |
+| GET | `/api/health/sendgrid` | Verificar configuración SendGrid | health |
+| POST | `/api/analyze` | Ejecutar análisis y enviar emails | analysis |
+
+### Endpoint Principal: Análisis y Notificaciones
 
 ```bash
-# Activate virtual environment
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # Linux/Mac
-
-# Run the application
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### API Endpoints
-
-#### 1. Analyze Sales (Main Endpoint)
-
-```http
-POST /analyze
+POST /api/analyze
 Content-Type: application/json
 
 {
-  "current_date": "2026-02-12"
+  "current_date": "2026-02-12",
+  "is_testing": false
 }
 ```
 
-**Response Example:**
+**Parámetros:**
+- `current_date` (string, requerido): Fecha de análisis en formato YYYY-MM-DD
+- `is_testing` (boolean, opcional): Si es `true`, todos los emails se envían a `SENDGRID_TEST_EMAIL`
+
+**Respuesta:**
 
 ```json
 {
@@ -226,123 +157,367 @@ Content-Type: application/json
       {
         "id_ejecutivo": 123,
         "nombre": "Juan Pérez",
-        "estado": "Buen ritmo",
+        "correo": "juan.perez@empresa.com",
+        "estado": "Necesita acelerar",
         "metricas": {
-          "ventas_acumuladas": 15000000,
-          "meta_mes": 20000000,
-          "avance_porcentual": 0.75
+          "ventas_acumuladas": 1631551,
+          "meta_mes": 5000000,
+          "avance_porcentual": 0.326,
+          "faltante": 3368449,
+          "dias_restantes": 16,
+          "venta_diaria_actual": 135963,
+          "venta_diaria_requerida": 210528
         },
         "cartera": {
-          "total_clientes": 50,
-          "clientes_activos": 35
+          "total_clientes": 3,
+          "clientes_activos": 2,
+          "clientes_riesgo_alto": 1,
+          "clientes_riesgo_medio": 2,
+          "total_reclamos_cartera": 0,
+          "tasa_cumplimiento_retiros": 0.964
         },
-        "diagnostico": "Excelente ritmo de ventas...",
-        "acciones_recomendadas": ["..."],
-        "alertas": []
+        "diagnostico": "El ejecutivo tiene clientes en riesgo crítico...",
+        "sugerencias_clientes": [
+          {
+            "prioridad": "CRÍTICA",
+            "cliente_rut": "13964232",
+            "cliente_nombre": "MAGALY",
+            "accion": "Contactar urgentemente",
+            "razon": "Cliente en riesgo crítico (red) con drop_flag activo...",
+            "origen": "analisis_riesgo"
+          }
+        ],
+        "alertas": [
+          "1 cliente en riesgo crítico (red)",
+          "2 clientes en riesgo medio (yellow)"
+        ]
       }
-    ],
-    "resumen_general": {
-      "total_ejecutivos": 10,
-      "ejecutivos_buen_ritmo": 7
-    }
+    ]
   },
   "metadata": {
-    "data_count": 150,
-    "model": "amazon.nova-pro-v1:0",
-    "tokens": {"total": 2300},
-    "cost": {"total": 0.00376}
+    "data_count": 1,
+    "model": "amazon-nova-lite-v1",
+    "tokens": {
+      "prompt": 1234,
+      "completion": 567,
+      "total": 1801
+    },
+    "cost": {
+      "input": 0.000987,
+      "output": 0.001814,
+      "total": 0.002801
+    }
+  },
+  "email_notifications": {
+    "total_sent": 1,
+    "total_failed": 0,
+    "notifications": [
+      {
+        "ejecutivo": "Juan Pérez",
+        "recipient": "juan.perez@empresa.com",
+        "subject": "Reporte diario Coach Ejecutivo (Juan Pérez)",
+        "status": "success",
+        "status_code": 202
+      }
+    ]
   }
 }
 ```
 
-#### 2. Health Check
+### Health Check Endpoints
 
-```http
-GET /health
-```
-
-#### 3. Interactive API Documentation
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
----
-
-## 📚 API Documentation
-
-### Status Classifications
-
-| Status | Criteria |
-|--------|----------|
-| **Excelente ritmo** | Daily average ≥ 120% of required pace |
-| **Buen ritmo** | Daily average ≥ 90% of required pace |
-| **Ritmo justo** | Daily average ≥ 70% of required pace |
-| **Necesita acelerar** | Daily average < 70% of required pace |
-
----
-
-## 📁 Project Structure
-
-```
-sales-analysis-api/
-├── app/
-│   ├── main.py                 # FastAPI application
-│   ├── api/
-│   │   ├── routes.py           # API endpoints
-│   │   └── schemas.py          # Pydantic models
-│   ├── clients/
-│   │   ├── mongodb_client.py   # MongoDB connection
-│   │   └── aws_bedrock_client.py  # AWS Bedrock
-│   ├── config/
-│   │   ├── settings.py         # Configuration
-│   │   └── queries.py          # Dynamic queries
-│   └── services/
-│       └── analysis_service.py # Business logic
-├── tests/
-├── .env                        # Environment variables
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-└── README.md
-```
-
----
-
-## 🔍 How It Works
-
-1. **Request Processing**: Receive date in POST request
-2. **Dynamic Query Generation**: Build MongoDB pipelines based on date
-3. **Data Retrieval**: Fetch sales, goals, and client data
-4. **AI Analysis**: Send to AWS Bedrock for intelligent insights
-5. **Response Generation**: Return structured JSON with recommendations
-
----
-
-## 🚢 Deployment
-
-### Docker Deployment
-
+#### General Health Check
 ```bash
-docker-compose up --build -d
+GET /api/health
 ```
 
-### AWS Deployment
+Respuesta:
+```json
+{
+  "status": "healthy",
+  "service": "AWS Bedrock API Service"
+}
+```
 
-Compatible with:
-- AWS ECS/Fargate
-- AWS EC2
-- AWS Lambda
-- AWS App Runner
+#### MongoDB Connection Check
+```bash
+GET /api/health/mongodb
+```
 
----
+Respuesta exitosa:
+```json
+{
+  "status": "connected",
+  "message": "MongoDB connection is healthy",
+  "database": "nombre_base_datos"
+}
+```
+
+Respuesta con error (503):
+```json
+{
+  "detail": "MongoDB connection failed: [error message]"
+}
+```
+
+#### AWS Bedrock Connection Check
+```bash
+GET /api/health/bedrock
+```
+
+Respuesta exitosa:
+```json
+{
+  "status": "connected",
+  "message": "AWS Bedrock connection is healthy",
+  "model": "amazon-nova-lite-v1",
+  "region": "us-east-1",
+  "test_response": "OK"
+}
+```
+
+Respuesta con error (503):
+```json
+{
+  "detail": "AWS Bedrock connection failed: [error message]"
+}
+```
+
+#### SendGrid Configuration Check
+```bash
+GET /api/health/sendgrid
+```
+
+Respuesta exitosa:
+```json
+{
+  "status": "configured",
+  "message": "SendGrid is properly configured",
+  "from_email": "noreply@tudominio.com",
+  "test_email": "test@tudominio.com",
+  "note": "Use /api/analyze with is_testing=true to test actual email sending"
+}
+```
+
+Respuesta con error (503):
+```json
+{
+  "detail": "SendGrid API key not configured"
+}
+```
+
+### Documentación Interactiva
+
+Una vez iniciado el servidor, accede a:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+## 📧 Formato de Emails
+
+Los emails enviados incluyen:
+
+### Header
+- Título del reporte
+- Nombre del ejecutivo
+- Fecha del análisis
+- Badge de estado (🟢 Excelente / 🔵 Buen ritmo / 🟡 Ritmo justo / 🔴 Necesita acelerar)
+
+### Métricas de Ventas
+- Ventas acumuladas vs Meta
+- Barra de progreso visual
+- Días restantes
+- Venta diaria actual vs requerida
+
+### Análisis de Cartera
+- Total de clientes y clientes activos
+- Indicadores de riesgo (ALTO/MEDIO)
+- Total de reclamos
+- Tasa de cumplimiento de retiros
+
+### Sugerencias Prioritarias
+Máximo 3 sugerencias por ejecutivo, cada una con:
+- Badge de prioridad (🔴 CRÍTICA / 🟠 ALTA / 🟡 MEDIA)
+- Nombre y RUT del cliente
+- Acción específica a realizar
+- Razón detallada con datos
+
+### Alertas
+- Clientes en riesgo crítico
+- Reclamos activos sin resolver
+- Problemas operacionales
 
 ## 🧪 Testing
 
+### Ejecutar Tests
+
 ```bash
+# Todos los tests
 pytest
+
+# Tests específicos
+pytest tests/test_api_routes.py
+pytest tests/test_analysis_service.py
+pytest tests/test_health_endpoints.py
+
+# Con cobertura
 pytest --cov=app tests/
+
+# Tests de health checks solamente
+pytest tests/test_health_endpoints.py -v
 ```
 
----
+### Tests Disponibles
 
-**Made with ❤️ for better sales insights**
+- `test_main.py` - Tests del punto de entrada de la aplicación
+- `test_api_routes.py` - Tests de endpoints de análisis
+- `test_health_endpoints.py` - Tests de endpoints de health check (MongoDB, Bedrock, SendGrid)
+- `test_analysis_service.py` - Tests del servicio de análisis
+- `test_mongodb_client.py` - Tests del cliente MongoDB
+- `test_aws_bedrock_client.py` - Tests del cliente AWS Bedrock
+- `test_settings.py` - Tests de configuración
+
+### Modo Testing de Emails
+
+Para probar sin enviar emails a destinatarios reales:
+
+```bash
+POST /api/analyze
+{
+  "current_date": "2026-02-12",
+  "is_testing": true
+}
+```
+
+Todos los emails se redirigirán a `SENDGRID_TEST_EMAIL` con un banner indicando el destinatario original.
+
+## 📊 Lógica de Análisis
+
+### Priorización de Clientes
+
+El sistema prioriza clientes en este orden:
+
+1. **CRÍTICA**: 
+   - `risk_level = "red"`
+   - `drop_flag = 1` AND `needs_attention = true`
+   - Cliente inactivo con historial de ventas alto
+
+2. **ALTA**:
+   - `risk_level = "yellow"` AND `drop_flag = 1`
+   - 2+ meses consecutivos bajo percentil 25
+   - Caída significativa en ventas (>30%)
+
+3. **MEDIA**:
+   - Reclamos activos
+   - Tasa de retiros < 80%
+   - Problemas operacionales recurrentes
+
+### Clasificación de Estado del Ejecutivo
+
+- **Excelente ritmo**: Venta diaria actual ≥ 120% de la requerida
+- **Buen ritmo**: Venta diaria actual ≥ 90% de la requerida
+- **Ritmo justo**: Venta diaria actual ≥ 70% de la requerida
+- **Necesita acelerar**: Venta diaria actual < 70% de la requerida
+
+### Generación de Sugerencias
+
+Cada sugerencia incluye:
+- Cliente específico (nombre + RUT)
+- Acción concreta (Llamar, Reunión, Visitar, Resolver)
+- Razón con datos (risk_level, ventas, reclamos, retiros)
+- Origen (recomendación previa, análisis de riesgo, análisis operacional, oportunidad)
+
+## 🔧 Estructura del Proyecto
+
+```
+.
+├── app/
+│   ├── api/
+│   │   ├── routes.py          # Endpoints de la API
+│   │   └── schemas.py         # Modelos Pydantic
+│   ├── clients/
+│   │   ├── interfaces.py      # Interfaces abstractas
+│   │   ├── mongodb_client.py  # Cliente MongoDB
+│   │   ├── aws_bedrock_client.py  # Cliente AWS Bedrock
+│   │   └── email_client.py    # Cliente SendGrid
+│   ├── config/
+│   │   ├── settings.py        # Configuración
+│   │   └── queries.py         # Queries MongoDB y prompts
+│   ├── services/
+│   │   ├── analysis_service.py  # Orquestación del análisis
+│   │   └── email_notification_service.py  # Envío de emails
+│   └── main.py                # Punto de entrada
+├── tests/                     # Tests unitarios
+├── .env                       # Variables de entorno
+├── requirements.txt           # Dependencias Python
+├── Dockerfile                 # Imagen Docker
+├── docker-compose.yml         # Orquestación Docker
+└── README.md                  # Este archivo
+```
+
+## 🐛 Troubleshooting
+
+### Verificar Conexiones
+
+Usa los endpoints de health check para diagnosticar problemas:
+
+```bash
+# Verificar todas las conexiones manualmente
+curl http://localhost:8000/api/health
+curl http://localhost:8000/api/health/mongodb
+curl http://localhost:8000/api/health/bedrock
+curl http://localhost:8000/api/health/sendgrid
+
+# O usa el script de prueba (Linux/Mac)
+chmod +x test_health_checks.sh
+./test_health_checks.sh
+
+# O usa el script de prueba (Windows PowerShell)
+.\test_health_checks.ps1
+```
+
+O visita la documentación interactiva en `http://localhost:8000/docs` y prueba los endpoints desde ahí.
+
+### Error: "Service not initialized"
+- Verifica que todas las variables de entorno estén configuradas
+- Ejecuta `Settings().validate()` para ver qué falta
+- Usa `GET /api/health/mongodb` para verificar conexión a MongoDB
+- Usa `GET /api/health/bedrock` para verificar conexión a AWS Bedrock
+- Usa `GET /api/health/sendgrid` para verificar configuración de SendGrid
+
+### Error de conexión a MongoDB
+- Verifica que `MONGODB_URI` sea correcta
+- Comprueba conectividad de red
+- Revisa permisos del usuario MongoDB
+- **Usa `GET /api/health/mongodb` para diagnosticar**
+
+### Error de AWS Bedrock
+- Verifica credenciales AWS (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- Comprueba que el modelo esté disponible en tu región
+- Revisa permisos IAM para Bedrock
+- **Usa `GET /api/health/bedrock` para diagnosticar**
+
+### Emails no se envían
+- Verifica `SENDGRID_API_KEY` válida
+- Comprueba que `SENDGRID_FROM_EMAIL` esté verificado en SendGrid
+- Revisa logs para errores específicos
+- **Usa `GET /api/health/sendgrid` para verificar configuración**
+- Prueba con `POST /api/analyze` usando `is_testing: true`
+
+### Análisis vacío o incorrecto
+- Verifica que las colecciones MongoDB tengan datos
+- Comprueba que `current_date` esté en formato correcto (YYYY-MM-DD)
+- Revisa que los datos del mes/año solicitado existan
+
+## 📝 Licencia
+
+[Especificar licencia]
+
+## 👥 Contribución
+
+[Instrucciones para contribuir al proyecto]
+
+## 📞 Soporte
+
+Para soporte o consultas:
+- Email: [email de soporte]
+- Issues: [URL del repositorio]/issues
