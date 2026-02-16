@@ -108,7 +108,12 @@ async def analyze_data(
         
         # Generate queries and prompt based on current_date
         queries = get_queries(request.current_date)
-        analysis_prompt = get_analysis_prompt(request.current_date)
+        
+        # Pass MongoDB client to get_analysis_prompt to fetch from database
+        analysis_prompt = get_analysis_prompt(
+            request.current_date,
+            mongodb_client=service._data_client
+        )
         
         if not queries or len(queries) == 0:
             raise ValueError("No queries could be generated")

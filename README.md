@@ -508,3 +508,66 @@ O visita la documentación interactiva en `http://localhost:8000/docs` y prueba 
 - Comprueba que `current_date` esté en formato correcto (YYYY-MM-DD)
 - Revisa que los datos del mes/año solicitado existan
 
+## 🎯 Gestión de Prompts desde MongoDB
+
+El sistema permite gestionar el prompt del agente de AWS Bedrock desde MongoDB sin necesidad de redesplegar la aplicación. Esto facilita:
+
+- Modificar el comportamiento del agente sin downtime
+- Mantener un historial de versiones del prompt
+- Probar diferentes estrategias de análisis fácilmente
+
+### Subir el Prompt Inicial
+
+```bash
+python upload_prompt_to_mongo.py
+```
+
+Este script crea el documento del prompt en la colección `prompts` de MongoDB.
+
+### Ver el Prompt Actual
+
+```bash
+python update_prompt.py --view
+```
+
+### Actualizar el Prompt
+
+```bash
+# Desde un archivo
+python update_prompt.py --file mi_nuevo_prompt.txt
+
+# Con versión específica
+python update_prompt.py --file mi_nuevo_prompt.txt --version 2.1
+```
+
+### Ver Historial de Versiones
+
+```bash
+python update_prompt.py --history
+```
+
+### Desactivar/Activar Prompt
+
+```bash
+# Desactivar (usa prompt por defecto como fallback)
+python update_prompt.py --deactivate
+
+# Activar
+python update_prompt.py --activate
+```
+
+### Variables Dinámicas en el Prompt
+
+El template del prompt usa estas variables que se reemplazan automáticamente:
+
+- `{current_date}`: Fecha de análisis (YYYY-MM-DD)
+- `{year}`: Año objetivo
+- `{month}`: Mes objetivo
+- `{day}`: Día actual del mes
+- `{dias_mes}`: Total de días del mes
+- `{dias_restantes}`: Días restantes
+- `{avance_esperado}`: Avance esperado (decimal)
+- `{avance_esperado_pct}`: Avance esperado (porcentaje)
+
+Para más detalles, consulta [PROMPT_MANAGEMENT.md](PROMPT_MANAGEMENT.md).
+

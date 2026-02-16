@@ -93,6 +93,39 @@ class MongoDBClient(IDataClient):
         except Exception as e:
             raise Exception(f"Unexpected error executing query: {str(e)}")
     
+    def get_prompt_template(self, prompt_id: str = "bedrock_analysis_prompt") -> Dict[str, Any]:
+        """Retrieve prompt template from MongoDB.
+        
+        Args:
+            prompt_id: ID of the prompt to retrieve
+            
+        Returns:
+            Dictionary with prompt template and metadata
+            
+        Raises:
+            ConnectionError: If not connected to MongoDB
+            ValueError: If prompt not found or inactive
+        """
+        if self._client is None or self._database is None:
+            raise ConnectionError("Not connected to MongoDB. Call connect() first.")
+        
+        try:
+            collection = self._database["prompts"]
+            prompt_doc = collection.find_one({"prompt_id": prompt_id, "active": True})
+            
+            if not prompt_doc:
+                raise ValueError(f"Active prompt with ID '{prompt_id}' not found")
+            
+            return {
+                "template": prompt_doc["template"],
+                "version": prompt_doc.get("version", "1.0"),
+                "variables": prompt_doc.get("variables", []),
+                "description": prompt_doc.get("description", "")
+            }
+            
+        except Exception as e:
+            raise Exception(f"Error retrieving prompt template: {str(e)}")
+    
     def disconnect(self) -> None:
         """Close MongoDB connection and cleanup resources."""
         if self._client is not None:

@@ -1,7 +1,8 @@
 """Configuración de consultas dinámicas y prompts para el análisis."""
 
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from app.clients.mongodb_client import MongoDBClient
 
 
 def parse_date(date_str: str) -> tuple:
@@ -308,8 +309,16 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
     ]
 
 
-def get_analysis_prompt(current_date: str) -> str:
-    """Generate analysis prompt based on current date."""
+def get_analysis_prompt(current_date: str, mongodb_client: Optional[MongoDBClient] = None) -> str:
+    """Generate analysis prompt based on current date.
+    
+    Args:
+        current_date: Date string in format YYYY-MM-DD
+        mongodb_client: Optional MongoDB client to fetch prompt from database
+        
+    Returns:
+        Formatted prompt string with date variables replaced
+    """
     year, month, day = parse_date(current_date)
     
     if month in [1, 3, 5, 7, 8, 10, 12]:
@@ -322,6 +331,32 @@ def get_analysis_prompt(current_date: str) -> str:
         else:
             dias_mes = 28
     
+    dias_restantes = dias_mes - day
+    avance_esperado = round(day / dias_mes, 3)
+    avance_esperado_pct = round(day / dias_mes * 100, 1)
+    
+    # Intentar obtener el prompt desde MongoDB
+    if mongodb_client:
+        try:
+            prompt_data = mongodb_client.get_prompt_template("bedrock_analysis_prompt")
+            template = prompt_data["template"]
+            
+            # Reemplazar variables en el template
+            return template.format(
+                current_date=current_date,
+                year=year,
+                month=month,
+                day=day,
+                dias_mes=dias_mes,
+                dias_restantes=dias_restantes,
+                avance_esperado=avance_esperado,
+                avance_esperado_pct=avance_esperado_pct
+            )
+        except Exception as e:
+            # Si falla, usar el prompt por defecto (fallback)
+            print(f"Warning: Could not fetch prompt from MongoDB: {str(e)}. Using default prompt.")
+    
+    # Prompt por defecto (fallback) - mantener el original como respaldo
     return f"""
 Eres un Coach Ejecutivo de Ventas especializado en análisis de cartera y gestión de clientes.
 
@@ -331,7 +366,7 @@ CONTEXTO:
 - Mes objetivo: {month}
 - Día actual: {day}
 - Días del mes: {dias_mes}
-- Días restantes: {dias_mes - day}
+- Días restantes: {dias_restantes}
 
 ENFOQUE PRINCIPAL:
 Tu objetivo es generar sugerencias ESPECÍFICAS enfocadas en ACCIONES CONCRETAS con CLIENTES ESPECÍFICOS.
@@ -388,7 +423,7 @@ METODOLOGÍA DE ANÁLISIS:
 
 4) **ANÁLISIS DE RITMO DE VENTAS**:
    - Venta diaria actual = ventas_total_mes / {day}
-   - Venta diaria requerida = faltante / {dias_mes - day}
+   - Venta diaria requerida = faltante / {dias_restantes}
    - Clasificación:
      * "Excelente ritmo": venta_diaria_actual >= venta_diaria_requerida * 1.2
      * "Buen ritmo": venta_diaria_actual >= venta_diaria_requerida * 0.9
@@ -435,10 +470,10 @@ FORMATO DE SALIDA - JSON ESTRUCTURADO:
         "ventas_acumuladas": <ventas_total_mes>,
         "meta_mes": <goal_mes>,
         "avance_porcentual": <avance_pct>,
-        "avance_esperado": {round(day/dias_mes, 3)},
+        "avance_esperado": {avance_esperado},
         "faltante": <faltante>,
         "dias_transcurridos": {day},
-        "dias_restantes": {dias_mes - day},
+        "dias_restantes": {dias_restantes},
         "venta_diaria_actual": <calculado>,
         "venta_diaria_requerida": <calculado>
       }},
@@ -492,5 +527,5 @@ REGLAS CRÍTICAS:
 8. ANALIZA reclamos activos y problemas de retiros
 9. NO generes sugerencias genéricas sin cliente específico
 10. Usa números sin formato (sin separadores de miles)
-11. Si estamos en día {day} de {dias_mes}, un avance de {round(day/dias_mes*100, 1)}% es NORMAL
+11. Si estamos en día {day} de {dias_mes}, un avance de {avance_esperado_pct}% es NORMAL
 """
