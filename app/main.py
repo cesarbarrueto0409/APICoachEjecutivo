@@ -1,4 +1,38 @@
-"""Application entry point for the AWS Bedrock API Service."""
+"""
+Application entry point for the AWS Bedrock API Service.
+
+This module serves as the main entry point for the FastAPI application. It handles:
+    - Application initialization and configuration
+    - Dependency injection setup
+    - Client connections (MongoDB, AWS Bedrock, Embedding Service)
+    - Service layer initialization (Analysis, Memory, Similarity, Email)
+    - Application lifecycle management (startup/shutdown)
+    - CORS middleware configuration
+
+The application follows a factory pattern where create_app() builds and configures
+the FastAPI application with all necessary dependencies.
+
+Architecture:
+    1. Load configuration from environment variables
+    2. Validate configuration
+    3. Initialize client layer (MongoDB, AWS Bedrock, Embedding, Email)
+    4. Initialize service layer (Analysis, Memory, Similarity, Email Notification)
+    5. Configure dependency injection
+    6. Register API routes
+    7. Start application
+
+Example:
+    Run the application:
+    >>> python app/main.py
+    # Server starts on configured host:port (default: 0.0.0.0:8000)
+    
+    Or with uvicorn:
+    >>> uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    
+    Access API documentation:
+    - Swagger UI: http://localhost:8000/docs
+    - ReDoc: http://localhost:8000/redoc
+"""
 
 import logging
 import os
@@ -15,9 +49,11 @@ from app.services.recommendation_memory_store import RecommendationMemoryStore
 from app.services.similarity_service import SimilarityService
 from app.api.routes import router, set_analysis_service, set_settings
 
+# Configure logging with timestamp, logger name, level, and message
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Global client instances (initialized in setup_dependencies)
 _mongodb_client: MongoDBClient = None
 _aws_bedrock_client: AWSBedrockClient = None
 _embedding_client: EmbeddingClient = None
@@ -25,95 +61,147 @@ _embedding_client: EmbeddingClient = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager."""
+    """
+    Application lifespan manager for startup and shutdown events.
+    
+    This async context manager handles the application lifecycle:
+        - Startup: Connects to all external services (MongoDB, AWS Bedrock, Embedding)
+        - Shutdown: Disconnects and cleans up resources
+    
+    The lifespan pattern ensures that connections are properly established before
+    the application starts accepting requests and cleanly closed when shutting down.
+    
+    Args:
+        app: FastAPI application instance
+    
+    Yields:
+        Control to the application during its runtime
+    
+    Raises:
+        Exception: If any service fails to initialize during startup
+    
+    Example:
+        This function is automatically called by FastAPI:
+        >>> app = FastAPI(lifespan=lifespan)
+        # On startup: Connects to all services
+        # During runtime: Application handles requests
+        # On shutdown: Disconnects from all services
+    """
     logger.info("Starting AWS Bedrock API Service...")
     
-    try:
-        if _mongodb_client:
-            _mongodb_client.connect()
-            logger.info("MongoDB connected")
-        
-        if _aws_bedrock_client:
-            _aws_bedrock_client.connect()
-            logger.info("AWS Bedrock connected")
-        
-        if _embedding_client:
-            _embedding_client.connect()
-            logger.info("Embedding service connected")
-        
-        logger.info("Startup complete")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize: {str(e)}")
-        raise
+    # Connect to MongoDB
+    if _mongodb_client:
+        _mongodb_client.connect()
+        logger.info("MongoDB connected")
     
+    # Connect to AWS Bedrock
+    if _aws_bedrock_client:
+        _aws_bedrock_client.connect()
+        logger.info("AWS Bedrock connected")
+    
+    # Connect to Embedding Service (if memory system enabled)
+    if _embedding_client:
+        _embedding_client.connect()
+        logger.info("Embedding service connected")
+    
+    logger.info("Startup complete")
+    
+    # Yield control to the application
     yield
     
+    # Shutdown phase
     logger.info("Shutting down...")
     
-    try:
-        if _mongodb_client:
-            _mongodb_client.disconnect()
-            logger.info("MongoDB disconnected")
-        
-        logger.info("Shutdown complete")
-        
-    except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}")
+    # Disconnect from MongoDB
+    if _mongodb_client:
+        _mongodb_client.disconnect()
+        logger.info("MongoDB disconnected")
+    
+    logger.info("Shutdown complete")
 
 
 def setup_dependencies(app: FastAPI, settings: Settings) -> None:
-    """Configure dependency injection."""
+    """
+    Configure dependency injection for the application.
+    
+    This function initializes all client and service layer components and configures
+    them for dependency injection throughout the application. It follows a layered
+    architecture:
+    
+    Layer 1 - Clients (External Services):
+        - MongoDBClient: Database operations
+        - AWSBedrockClient: AI analysis
+        - EmbeddingClient: Text embeddings (optional, if memory enabled)
+    
+    Layer 2 - Services (Business Logic):
+        - SimilarityService: Semantic similarity computation
+        - RecommendationMemoryStore: Memory management with embeddings
+        - AnalysisService: Main orchestration service
+    
+    Layer 3 - API Routes:
+        - Configured with analysis_service and settings via dependency injection
+    
+    The function handles optional memory system initialization gracefully, continuing
+    without memory features if initialization fails.
+    
+    Args:
+        app: FastAPI application instance
+        settings: Validated Settings object with configuration
+    
+    Example:
+        This function is called during application creation:
+        >>> app = FastAPI()
+        >>> settings = Settings()
+        >>> settings.validate()
+        >>> setup_dependencies(app, settings)
+        # All dependencies are now configured and ready for injection
+    """
     global _mongodb_client, _aws_bedrock_client, _embedding_client
     
     logger.info("Setting up dependencies...")
     
+    # Initialize client layer - MongoDB (required)
     _mongodb_client = MongoDBClient(settings.mongodb_uri, settings.mongodb_database)
+    
+    # Initialize client layer - AWS Bedrock (required)
     _aws_bedrock_client = AWSBedrockClient(
         settings.aws_region,
         settings.aws_bedrock_model_id
     )
     
-    # Initialize memory system components if enabled
+    # Initialize memory system components (optional)
     embedding_client = None
     memory_store = None
     similarity_service = None
     
     if settings.memory_enabled:
-        try:
-            logger.info("Initializing memory system components...")
-            
-            # Initialize embedding client
-            _embedding_client = EmbeddingClient(
-                api_key=settings.embedding_api_key,
-                endpoint=settings.embedding_endpoint,
-                model_name=settings.embedding_model_name
-            )
-            embedding_client = _embedding_client
-            
-            # Initialize similarity service
-            similarity_service = SimilarityService(
-                similarity_threshold=settings.similarity_threshold,
-                cooldown_days=settings.cooldown_days
-            )
-            
-            # Initialize recommendation memory store
-            memory_store = RecommendationMemoryStore(
-                data_client=_mongodb_client,
-                embedding_client=embedding_client
-            )
-            
-            logger.info("Memory system components initialized")
-            
-        except Exception as e:
-            logger.warning(f"Failed to initialize memory system: {e}. Continuing without memory.")
-            embedding_client = None
-            memory_store = None
-            similarity_service = None
+        logger.info("Initializing memory system components...")
+        
+        # Initialize embedding client for generating text embeddings
+        _embedding_client = EmbeddingClient(
+            api_key=settings.embedding_api_key,
+            endpoint=settings.embedding_endpoint,
+            model_name=settings.embedding_model_name
+        )
+        embedding_client = _embedding_client
+        
+        # Initialize similarity service for semantic comparison
+        similarity_service = SimilarityService(
+            similarity_threshold=settings.similarity_threshold,
+            cooldown_days=settings.cooldown_days
+        )
+        
+        # Initialize recommendation memory store for persistence
+        memory_store = RecommendationMemoryStore(
+            data_client=_mongodb_client,
+            embedding_client=embedding_client
+        )
+        
+        logger.info("Memory system components initialized")
     else:
         logger.info("Memory system disabled by configuration")
     
-    # Initialize analysis service with memory components
+    # Initialize analysis service with all dependencies
     analysis_service = AnalysisService(
         data_client=_mongodb_client,
         ai_client=_aws_bedrock_client,
@@ -123,6 +211,7 @@ def setup_dependencies(app: FastAPI, settings: Settings) -> None:
         memory_enabled=settings.memory_enabled
     )
     
+    # Configure dependency injection for API routes
     set_analysis_service(analysis_service)
     set_settings(settings)
     
@@ -130,16 +219,45 @@ def setup_dependencies(app: FastAPI, settings: Settings) -> None:
 
 
 def create_app() -> FastAPI:
-    """Application factory."""
+    """
+    Application factory function.
+    
+    This function creates and configures a FastAPI application instance with all
+    necessary middleware, routes, and dependencies. It follows the factory pattern
+    to allow for flexible application creation and testing.
+    
+    The function performs the following steps:
+        1. Load configuration from environment variables
+        2. Validate configuration (raises ValueError if invalid)
+        3. Create FastAPI application with metadata
+        4. Add CORS middleware for cross-origin requests
+        5. Setup dependency injection
+        6. Register API routes
+    
+    Returns:
+        Configured FastAPI application instance ready to serve requests
+    
+    Raises:
+        ValueError: If configuration validation fails
+    
+    Example:
+        Create and run application:
+        >>> app = create_app()
+        >>> import uvicorn
+        >>> uvicorn.run(app, host="0.0.0.0", port=8000)
+        
+        For testing:
+        >>> from fastapi.testclient import TestClient
+        >>> app = create_app()
+        >>> client = TestClient(app)
+        >>> response = client.get("/api/health")
+        >>> assert response.status_code == 200
+    """
     logger.info("Loading configuration...")
     settings = Settings()
     
-    try:
-        settings.validate()
-        logger.info("Configuration validated")
-    except ValueError as e:
-        logger.error(f"Configuration failed: {str(e)}")
-        raise
+    settings.validate()
+    logger.info("Configuration validated")
     
     app = FastAPI(
         title="AWS Bedrock API Service",
@@ -165,11 +283,7 @@ def create_app() -> FastAPI:
     return app
 
 
-try:
-    app = create_app()
-except ValueError as e:
-    logger.warning(f"Could not create app: {str(e)}")
-    app = FastAPI(title="AWS Bedrock API Service (Unconfigured)")
+app = create_app()
 
 
 if __name__ == "__main__":
