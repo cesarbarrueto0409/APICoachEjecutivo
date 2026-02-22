@@ -1,7 +1,15 @@
 """Analysis service for orchestrating data retrieval and AI analysis."""
 
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from app.clients.interfaces import IDataClient, IAIClient
+
+if TYPE_CHECKING:
+    from app.clients.interfaces import IEmbeddingClient
+    from app.services.recommendation_memory_store import RecommendationMemoryStore
+    from app.services.similarity_service import SimilarityService
+
+logger = logging.getLogger(__name__)
 
 
 class ServiceError(Exception):
@@ -17,7 +25,15 @@ class ServiceError(Exception):
 class AnalysisService:
     """Service orchestrating the analysis workflow."""
     
-    def __init__(self, data_client: IDataClient, ai_client: IAIClient):
+    def __init__(
+        self,
+        data_client: IDataClient,
+        ai_client: IAIClient,
+        embedding_client: Optional["IEmbeddingClient"] = None,
+        memory_store: Optional["RecommendationMemoryStore"] = None,
+        similarity_service: Optional["SimilarityService"] = None,
+        memory_enabled: bool = True
+    ):
         if data_client is None:
             raise ValueError("data_client cannot be None")
         if ai_client is None:
@@ -25,6 +41,19 @@ class AnalysisService:
             
         self._data_client = data_client
         self._ai_client = ai_client
+        
+        # Memory system components (optional for backward compatibility)
+        self._embedding_client = embedding_client
+        self._memory_store = memory_store
+        self._similarity_service = similarity_service
+        self._memory_enabled = memory_enabled and all([
+            embedding_client, memory_store, similarity_service
+        ])
+        
+        if self._memory_enabled:
+            logger.info("AnalysisService initialized with memory system enabled")
+        else:
+            logger.info("AnalysisService initialized without memory system (backward compatibility mode)")
     
     def execute_analysis(
         self,
@@ -40,14 +69,7 @@ class AnalysisService:
             raise ValueError("query_params must include 'collection' field")
         
         # Query MongoDB
-        try:
-            data = self._data_client.query(query_params)
-        except ConnectionError as e:
-            raise ServiceError("Failed to connect to data source", "data_retrieval", str(e))
-        except ValueError as e:
-            raise ServiceError("Invalid query parameters", "data_retrieval", str(e))
-        except Exception as e:
-            raise ServiceError("Failed to retrieve data from database", "data_retrieval", str(e))
+        data = self._data_client.query(query_params)
         
         # Validate data
         if data is None:
@@ -66,6 +88,19 @@ class AnalysisService:
                 "query_params": query_params
             }
         
+        # Apply pre-filtering if memory system is enabled
+        if self._memory_enabled and current_date:
+            import os
+            prefilter_enabled = os.getenv("PREFILTER_ENABLED", "true").lower() == "true"
+            if prefilter_enabled:
+                prefilter_days = int(os.getenv("PREFILTER_DAYS_THRESHOLD", "7"))
+                data = self._ai_client._prefilter_clients_by_memory(
+                    data, 
+                    days_threshold=prefilter_days,
+                    reference_date=current_date
+                )
+                logger.info(f"Pre-filtering applied: {len(data)} executives after filtering")
+        
         # Enhance prompt with current date if provided
         enhanced_prompt = analysis_prompt
         if current_date:
@@ -73,12 +108,7 @@ class AnalysisService:
             enhanced_prompt = date_context + (analysis_prompt or "Analyze the provided data.")
         
         # AI analysis
-        try:
-            ai_result = self._ai_client.analyze(data, prompt=enhanced_prompt)
-        except ConnectionError as e:
-            raise ServiceError("Failed to connect to AI service", "ai_analysis", str(e))
-        except Exception as e:
-            raise ServiceError("Failed to analyze data with AI service", "ai_analysis", str(e))
+        ai_result = self._ai_client.analyze(data, prompt=enhanced_prompt)
         
         # Validate AI response
         if ai_result is None:
@@ -93,3 +123,159 @@ class AnalysisService:
             "analysis": ai_result,
             "query_params": query_params
         }
+    
+    def execute_analysis_with_memory(
+        self,
+        executive_id: str,
+        client_id: str,
+        query_params: Dict[str, Any],
+        analysis_prompt: Optional[str] = None,
+        current_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Execute analysis workflow with memory filtering.
+        
+        Args:
+            executive_id: ID of the executive
+            client_id: ID of the client
+            query_params: MongoDB query parameters
+            analysis_prompt: Optional custom prompt
+            current_date: Optional current date for context
+            
+        Returns:
+            Analysis results with filtered recommendations
+        """
+        # Step 1: Retrieve historical recommendations if memory enabled
+        historical_recs = []
+        if self._memory_enabled:
+            logger.debug(f"Retrieving historical recommendations for executive {executive_id}, client {client_id}")
+            historical_recs = self._memory_store.get_historical_recommendations(
+                executive_id=executive_id,
+                client_id=client_id,
+                limit=5
+            )
+            logger.info(f"Retrieved {len(historical_recs)} historical recommendations for context")
+        else:
+            logger.debug("Memory system disabled, skipping historical retrieval")
+        
+        # Step 2: Enhance prompt with historical context
+        enhanced_prompt = self._build_enhanced_prompt(
+            base_prompt=analysis_prompt,
+            historical_recs=historical_recs,
+            current_date=current_date
+        )
+        
+        # Step 3: Execute standard analysis
+        analysis_result = self.execute_analysis(
+            query_params=query_params,
+            analysis_prompt=enhanced_prompt,
+            current_date=None  # Already included in enhanced_prompt
+        )
+        
+        # Step 4: Extract recommendations from AI response
+        recommendations = self._extract_recommendations(analysis_result)
+        logger.info(f"Extracted {len(recommendations)} recommendations from AI response")
+        
+        # Step 5: Generate embeddings for new recommendations
+        if self._memory_enabled and recommendations:
+            logger.debug(f"Generating embeddings for {len(recommendations)} recommendations")
+            for rec in recommendations:
+                rec_text = rec.get("recommendation", "")
+                if rec_text:
+                    embedding = self._embedding_client.generate_embedding(rec_text)
+                    rec["embedding"] = embedding
+            logger.info(f"Successfully generated embeddings for all recommendations")
+        
+        # Step 6: Filter recommendations based on similarity
+        filtered_recs = recommendations
+        if self._memory_enabled and recommendations and historical_recs:
+            logger.debug(f"Filtering {len(recommendations)} recommendations against {len(historical_recs)} historical ones")
+            filtered_recs = self._similarity_service.filter_recommendations(
+                new_recommendations=recommendations,
+                historical_recommendations=historical_recs
+            )
+            logger.info(f"Filtered recommendations: {len(recommendations)} -> {len(filtered_recs)}")
+        
+        # Step 7: Store new recommendations
+        if self._memory_enabled and filtered_recs:
+            logger.debug(f"Storing {len(filtered_recs)} filtered recommendations")
+            for rec in filtered_recs:
+                self._memory_store.store_recommendation(
+                    executive_id=executive_id,
+                    client_id=client_id,
+                    recommendation_text=rec.get("recommendation", ""),
+                    metadata={
+                        "status": rec.get("status", "new"),
+                        "previous_timestamp": rec.get("previous_timestamp")
+                    }
+                )
+        
+        # Step 8: Return results with filtered recommendations
+        analysis_result["recommendations"] = filtered_recs
+        analysis_result["memory_enabled"] = self._memory_enabled
+        
+        logger.info(f"Analysis with memory completed (executive: {executive_id}, client: {client_id}, recommendations: {len(filtered_recs)})")
+        return analysis_result
+
+    def _build_enhanced_prompt(
+        self,
+        base_prompt: Optional[str],
+        historical_recs: List[Dict[str, Any]],
+        current_date: Optional[str]
+    ) -> str:
+        """Build enhanced prompt with historical context.
+        
+        Args:
+            base_prompt: Base analysis prompt
+            historical_recs: List of historical recommendations
+            current_date: Current date for context
+            
+        Returns:
+            Enhanced prompt with historical context
+        """
+        prompt_parts = []
+        
+        # Add current date context
+        if current_date:
+            prompt_parts.append(f"Current date for analysis context: {current_date}.")
+        
+        # Add historical recommendations context
+        if historical_recs:
+            prompt_parts.append("\nPrevious recommendations for this client:")
+            for i, rec in enumerate(historical_recs[:5], 1):  # Limit to 5
+                rec_text = rec.get("recommendation", "")
+                rec_time = rec.get("timestamp", "")
+                prompt_parts.append(f"{i}. [{rec_time}] {rec_text}")
+            prompt_parts.append("\nPlease generate diverse recommendations that avoid repeating these previous suggestions.")
+        
+        # Add base prompt
+        if base_prompt:
+            prompt_parts.append(f"\n{base_prompt}")
+        else:
+            prompt_parts.append("\nAnalyze the provided data and generate recommendations.")
+        
+        return " ".join(prompt_parts)
+
+    def _extract_recommendations(self, analysis_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract recommendations from AI analysis result.
+        
+        Args:
+            analysis_result: Result from execute_analysis()
+            
+        Returns:
+            List of recommendation dictionaries
+        """
+        # Get the analysis field from the result
+        analysis = analysis_result.get("analysis", {})
+        
+        # If analysis is a dict and has recommendations field
+        if isinstance(analysis, dict) and "recommendations" in analysis:
+            recs = analysis["recommendations"]
+            if isinstance(recs, list):
+                return recs
+        
+        # If analysis itself is a list of recommendations
+        if isinstance(analysis, list):
+            return analysis
+        
+        # No recommendations found
+        return []
