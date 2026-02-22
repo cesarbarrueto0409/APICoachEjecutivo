@@ -22,14 +22,9 @@ class MongoDBClient(IDataClient):
     
     def connect(self) -> None:
         """Establish connection to MongoDB."""
-        try:
-            self._client = MongoClient(self._connection_string, serverSelectionTimeoutMS=5000)
-            self._client.admin.command('ping')
-            self._database = self._client[self._database_name]
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            raise ConnectionError(f"Failed to connect to MongoDB: {str(e)}")
-        except Exception as e:
-            raise ConnectionError(f"Unexpected error connecting to MongoDB: {str(e)}")
+        self._client = MongoClient(self._connection_string, serverSelectionTimeoutMS=5000)
+        self._client.admin.command('ping')
+        self._database = self._client[self._database_name]
     
     def query(self, query_params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Execute MongoDB query (simple find or aggregation pipeline)."""
@@ -93,46 +88,42 @@ class MongoDBClient(IDataClient):
         except Exception as e:
             raise Exception(f"Unexpected error executing query: {str(e)}")
     
-    def get_prompt_template(self, prompt_id: str = "bedrock_analysis_prompt") -> Dict[str, Any]:
-        """Retrieve prompt template from MongoDB.
-        
-        Args:
-            prompt_id: ID of the prompt to retrieve
-            
-        Returns:
-            Dictionary with prompt template and metadata
-            
-        Raises:
-            ConnectionError: If not connected to MongoDB
-            ValueError: If prompt not found or inactive
-        """
+    def insert_one(self, collection_name: str, document: Dict[str, Any]) -> str:
+        """Insert a single document into a MongoDB collection."""
         if self._client is None or self._database is None:
             raise ConnectionError("Not connected to MongoDB. Call connect() first.")
         
-        try:
-            collection = self._database["prompts"]
-            prompt_doc = collection.find_one({"prompt_id": prompt_id, "active": True})
-            
-            if not prompt_doc:
-                raise ValueError(f"Active prompt with ID '{prompt_id}' not found")
-            
-            return {
-                "template": prompt_doc["template"],
-                "version": prompt_doc.get("version", "1.0"),
-                "variables": prompt_doc.get("variables", []),
-                "description": prompt_doc.get("description", "")
-            }
-            
-        except Exception as e:
-            raise Exception(f"Error retrieving prompt template: {str(e)}")
+        if not collection_name or not isinstance(collection_name, str):
+            raise ValueError("collection_name must be a non-empty string")
+        
+        if not document or not isinstance(document, dict):
+            raise ValueError("document must be a non-empty dictionary")
+        
+        collection = self._database[collection_name]
+        result = collection.insert_one(document)
+        return str(result.inserted_id)
+    
+    def get_prompt_template(self, prompt_id: str = "bedrock_analysis_prompt") -> Dict[str, Any]:
+        """Retrieve prompt template from MongoDB."""
+        if self._client is None or self._database is None:
+            raise ConnectionError("Not connected to MongoDB. Call connect() first.")
+        
+        collection = self._database["prompts"]
+        prompt_doc = collection.find_one({"prompt_id": prompt_id, "active": True})
+        
+        if not prompt_doc:
+            raise ValueError(f"Active prompt with ID '{prompt_id}' not found")
+        
+        return {
+            "template": prompt_doc["template"],
+            "version": prompt_doc.get("version", "1.0"),
+            "variables": prompt_doc.get("variables", []),
+            "description": prompt_doc.get("description", "")
+        }
     
     def disconnect(self) -> None:
         """Close MongoDB connection and cleanup resources."""
         if self._client is not None:
-            try:
-                self._client.close()
-            except Exception:
-                pass
-            finally:
-                self._client = None
-                self._database = None
+            self._client.close()
+            self._client = None
+            self._database = None

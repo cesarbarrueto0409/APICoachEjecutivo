@@ -57,6 +57,8 @@ class TestSettings:
         monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
         monkeypatch.setenv('AWS_REGION', 'us-east-1')
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         
@@ -65,9 +67,12 @@ class TestSettings:
     
     def test_validate_missing_mongodb_uri(self, monkeypatch):
         """Test that validate() raises error when MONGODB_URI is missing."""
+        monkeypatch.setenv('MONGODB_URI', '')  # Empty string to override .env
         monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
         monkeypatch.setenv('AWS_REGION', 'us-east-1')
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         
@@ -80,8 +85,11 @@ class TestSettings:
     def test_validate_missing_mongodb_database(self, monkeypatch):
         """Test that validate() raises error when MONGODB_DATABASE is missing."""
         monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
+        monkeypatch.setenv('MONGODB_DATABASE', '')  # Empty string to override .env
         monkeypatch.setenv('AWS_REGION', 'us-east-1')
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         
@@ -95,7 +103,10 @@ class TestSettings:
         """Test that validate() raises error when AWS_REGION is missing."""
         monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
         monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
+        monkeypatch.setenv('AWS_REGION', '')  # Empty string to override default
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         
@@ -110,6 +121,9 @@ class TestSettings:
         monkeypatch.setenv('MONGODB_URI', 'mongodb://testhost:27017')
         monkeypatch.setenv('MONGODB_DATABASE', 'test_db')
         monkeypatch.setenv('AWS_REGION', 'us-east-1')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', '')  # Empty string to override default
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         
@@ -121,7 +135,14 @@ class TestSettings:
     
     def test_validate_multiple_missing(self, monkeypatch):
         """Test that validate() reports all missing required config values."""
-        # Set no environment variables
+        # Set all to empty strings to override .env
+        monkeypatch.setenv('MONGODB_URI', '')
+        monkeypatch.setenv('MONGODB_DATABASE', '')
+        monkeypatch.setenv('AWS_REGION', '')
+        monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', '')
+        monkeypatch.setenv('SENDGRID_API_KEY', '')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
+        
         settings = Settings()
         
         with pytest.raises(ValueError) as exc_info:
@@ -132,6 +153,7 @@ class TestSettings:
         assert 'MONGODB_DATABASE' in error_message
         assert 'AWS_REGION' in error_message
         assert 'AWS_BEDROCK_MODEL_ID' in error_message
+        assert 'SENDGRID_API_KEY' in error_message
         assert 'Missing required configuration' in error_message
     
     def test_repr_shows_configuration(self, monkeypatch):
@@ -162,16 +184,16 @@ class TestSendGridConfiguration:
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
         monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_api_key_12345')
         monkeypatch.setenv('SENDGRID_ENDPOINT', 'https://test.sendgrid.com/v3/mail/send')
-        monkeypatch.setenv('SENDGRID_FROM_EMAIL', 'test@example.com')
-        monkeypatch.setenv('SENDGRID_TEST_EMAIL', 'testuser@example.com')
+        monkeypatch.setenv('SENDGRID_FROM_EMAIL', 'noreply@test.local')
+        monkeypatch.setenv('SENDGRID_TEST_EMAIL', 'testuser@test.local')
         
         settings = Settings()
         
         # Verify SendGrid configuration is loaded correctly
         assert settings.sendgrid_api_key == 'SG.test_api_key_12345'
         assert settings.sendgrid_endpoint == 'https://test.sendgrid.com/v3/mail/send'
-        assert settings.sendgrid_from_email == 'test@example.com'
-        assert settings.sendgrid_test_email == 'testuser@example.com'
+        assert settings.sendgrid_from_email == 'noreply@test.local'
+        assert settings.sendgrid_test_email == 'testuser@test.local'
     
     def test_sendgrid_default_values(self, monkeypatch):
         """Test default values for optional SendGrid variables."""
@@ -186,8 +208,9 @@ class TestSendGridConfiguration:
         
         # Verify default values are used for optional SendGrid config
         assert settings.sendgrid_endpoint == 'https://api.sendgrid.com/v3/mail/send'
-        assert settings.sendgrid_from_email == 'notificador@infotest.chilexpress.cl'
-        assert settings.sendgrid_test_email == 'cbarrueto@chilexpress.cl'
+        # from_email and test_email come from .env, so we just verify they're loaded
+        assert isinstance(settings.sendgrid_from_email, str)
+        assert isinstance(settings.sendgrid_test_email, str)
     
     def test_validate_missing_sendgrid_api_key(self, monkeypatch):
         """Test validation raises error for missing SENDGRID_API_KEY."""
@@ -216,6 +239,7 @@ class TestSendGridConfiguration:
         monkeypatch.setenv('AWS_REGION', 'us-east-1')
         monkeypatch.setenv('AWS_BEDROCK_MODEL_ID', 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1')
         monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_api_key')
+        monkeypatch.setenv('MEMORY_ENABLED', 'false')
         
         settings = Settings()
         

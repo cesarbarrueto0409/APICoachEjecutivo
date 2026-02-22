@@ -1,4 +1,23 @@
-"""Configuración de consultas dinámicas y prompts para el análisis."""
+"""
+Dynamic query configuration and prompts for sales analysis.
+
+This module generates MongoDB aggregation pipelines and AI analysis prompts dynamically
+based on the current date. It handles complex data enrichment by joining multiple
+collections and calculating various metrics.
+
+The module provides two main functions:
+    - get_queries(): Generates MongoDB aggregation pipelines
+    - get_analysis_prompt(): Generates AI analysis prompts with date context
+
+Example:
+    Generate queries for a specific date:
+    
+    >>> from app.config.queries import get_queries, get_analysis_prompt
+    >>> queries = get_queries("2024-02-18")
+    >>> prompt = get_analysis_prompt("2024-02-18")
+    >>> print(f"Generated {len(queries)} queries")
+    >>> print(f"Prompt length: {len(prompt)} characters")
+"""
 
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -6,13 +25,167 @@ from app.clients.mongodb_client import MongoDBClient
 
 
 def parse_date(date_str: str) -> tuple:
-    """Parse date string and extract year, month, day."""
+    """
+    Parse date string and extract year, month, day components.
+    
+    This function converts a date string in YYYY-MM-DD format into separate
+    integer components for year, month, and day. These components are used
+    throughout the query generation process.
+    
+    Args:
+        date_str: Date string in format "YYYY-MM-DD" (e.g., "2024-02-18")
+    
+    Returns:
+        Tuple of (year, month, day) as integers
+        
+    Raises:
+        ValueError: If date_str is not in correct format
+        
+    Example:
+        >>> year, month, day = parse_date("2024-02-18")
+        >>> print(f"Year: {year}, Month: {month}, Day: {day}")
+        Year: 2024, Month: 2, Day: 18
+    """
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     return date_obj.year, date_obj.month, date_obj.day
 
 
 def get_queries(current_date: str) -> List[Dict[str, Any]]:
-    """Generate queries based on current date."""
+    """
+    Generate MongoDB aggregation pipeline queries based on current date.
+    
+    This function creates a complex aggregation pipeline that enriches executive
+    sales data by joining multiple collections and calculating various metrics.
+    The pipeline performs the following operations:
+    
+    1. Unwinds client list for individual processing
+    2. Joins sales data for the current month
+    3. Joins client metrics (risk, drop_flag, etc.)
+    4. Joins claims/complaints data
+    5. Joins pickup/retiros data
+    6. Joins previous Bedrock recommendations (legacy)
+    7. Joins memory embeddings (last 3 recommendations)
+    8. Consolidates all client information
+    9. Groups by executive with detailed portfolio
+    10. Adds sales goals and calculates advancement metrics
+    
+    The resulting data structure provides a complete view of each executive's
+    portfolio with all necessary information for AI analysis.
+    
+    Args:
+        current_date: Date string in format "YYYY-MM-DD" (e.g., "2024-02-18")
+            This date determines which month's data to retrieve and is used
+            for filtering sales, claims, and pickup data.
+    
+    Returns:
+        List containing one dictionary with the aggregation pipeline configuration:
+        [
+            {
+                "name": "ventas_por_ejecutivo_enriquecido",
+                "collection": "clientes_por_ejecutivo",
+                "pipeline": [...]  # MongoDB aggregation stages
+            }
+        ]
+    
+    Example:
+        Generate queries for February 18, 2024:
+        >>> queries = get_queries("2024-02-18")
+        >>> print(queries[0]["name"])
+        ventas_por_ejecutivo_enriquecido
+        >>> print(queries[0]["collection"])
+        clientes_por_ejecutivo
+        >>> print(len(queries[0]["pipeline"]))  # Number of aggregation stages
+        15
+        
+        Use with MongoDB client:
+        >>> from app.clients.mongodb_client import MongoDBClient
+        >>> client = MongoDBClient("mongodb://localhost", "sales_db")
+        >>> client.connect()
+        >>> queries = get_queries("2024-02-18")
+        >>> results = client.query(queries[0])
+        >>> print(f"Found {len(results)} executives")
+        >>> for exec_data in results:
+        ...     print(f"{exec_data['nombre_ejecutivo']}: {exec_data['ventas_total_mes']}")
+    
+    Collections Used:
+        - clientes_por_ejecutivo: Executive-client mappings (base collection)
+        - sales_last_month: Monthly sales data
+        - clients_data: Client metrics (risk_level, drop_flag, is_active, etc.)
+        - claims_last_month: Claims/complaints data
+        - pickup_last_month: Pickup/retiros data
+        - clients_recomendations: Previous Bedrock recommendations (legacy)
+        - memory_embeddings: Semantic memory with embeddings (last 3 per client)
+        - sales_goal: Sales targets by executive
+    
+    Output Structure:
+        Each document in the result represents one executive with:
+        {
+            "id_ejecutivo": int,
+            "nombre_ejecutivo": str,
+            "correo": str,
+            "agno": int,
+            "mes": int,
+            "ventas_total_mes": float,
+            "goal_mes": float,
+            "goal_year": float,
+            "avance_pct": float,
+            "faltante": float,
+            "n_clientes": int,
+            "clientes_con_ventas": int,
+            "cartera_detallada": [
+                {
+                    "rut_key": str,
+                    "nombre": str,
+                    "ventas_mes": float,
+                    "client_metrics": {
+                        "drop_flag": int,
+                        "risk_level": str,  # "red", "yellow", "green"
+                        "risk_score": float,
+                        "is_active": bool,
+                        "needs_attention": bool,
+                        "is_high_value": bool,
+                        "monto_neto_mes_mean": float,
+                        "avg_last3": float,
+                        "avg_prev3": float,
+                        "p25": float,
+                        "p50": float,
+                        "consec_below_p25": int
+                    },
+                    "claims": {
+                        "total_reclamos": int,
+                        "reclamos": [
+                            {
+                                "numero_caso": str,
+                                "fecha_creacion": str,
+                                "motivo": str,
+                                "subcategoria": str,
+                                "estado": str,
+                                "valor_reclamado": float,
+                                "descripcion_caso": str
+                            }
+                        ]
+                    },
+                    "pickups": {
+                        "cant_retiros_programados": int,
+                        "cant_retiros_efectuados": int,
+                        "lista_retiros": [...]
+                    },
+                    "recommendation": {
+                        "bedrock_recommendation": str,
+                        "execution_date": str,
+                        "cluster": str
+                    },
+                    "memory_recs": [
+                        {
+                            "recommendation": str,
+                            "timestamp": str,
+                            "metadata": dict
+                        }
+                    ]
+                }
+            ]
+        }
+    """
     year, month, day = parse_date(current_date)
     
     return [
@@ -20,7 +193,7 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
             "name": "ventas_por_ejecutivo_enriquecido",
             "collection": "clientes_por_ejecutivo",
             "pipeline": [
-                # Unwind para procesar cada cliente individualmente
+                # Unwind to process each client individually
                 {"$unwind": "$rut_clientes"},
                 {"$addFields": {"rut_cliente_str": {"$toString": "$rut_clientes"}}},
                 
@@ -201,7 +374,41 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                     }
                 },
                 
-                # Consolidar toda la información del cliente
+                # Lookup 6: Memory embeddings recommendations (last 3 recommendations)
+                {
+                    "$lookup": {
+                        "from": "memory_embeddings",
+                        "let": {
+                            "exec_id": {"$toString": "$id_ejecutivo"},
+                            "client_id": {"$toString": "$rut_clientes"}
+                        },
+                        "pipeline": [
+                            {
+                                "$match": {
+                                    "$expr": {
+                                        "$and": [
+                                            {"$eq": ["$executive_id", "$$exec_id"]},
+                                            {"$eq": ["$client_id", "$$client_id"]}
+                                        ]
+                                    }
+                                }
+                            },
+                            {"$sort": {"timestamp": -1}},
+                            {"$limit": 3},
+                            {
+                                "$project": {
+                                    "_id": 0,
+                                    "recommendation": 1,
+                                    "timestamp": 1,
+                                    "metadata": 1
+                                }
+                            }
+                        ],
+                        "as": "memory_recommendations"
+                    }
+                },
+                
+                # Consolidate all client information
                 {
                     "$addFields": {
                         "ventas_cliente": {"$ifNull": [{"$first": "$sales.ventas_cliente"}, 0]},
@@ -212,12 +419,13 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                             "client_metrics": {"$first": "$client_data"},
                             "claims": {"$first": "$claims_data"},
                             "pickups": {"$first": "$pickup_data"},
-                            "recommendation": {"$first": "$recommendation_data"}
+                            "recommendation": {"$first": "$recommendation_data"},
+                            "memory_recs": "$memory_recommendations"
                         }
                     }
                 },
                 
-                # Agrupar por ejecutivo con toda la información de clientes
+                # Group by executive with all client information
                 {
                     "$group": {
                         "_id": {
@@ -234,7 +442,7 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                     }
                 },
                 
-                # Agregar métricas del ejecutivo
+                # Add executive metrics
                 {
                     "$addFields": {
                         "agno": year,
@@ -254,7 +462,7 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                 },
                 {"$addFields": {"goal_doc": {"$first": "$goal"}}},
                 
-                # Calcular metas y avances
+                # Calculate goals and progress
                 {
                     "$addFields": {
                         "goal_mes": {
@@ -284,7 +492,7 @@ def get_queries(current_date: str) -> List[Dict[str, Any]]:
                     }
                 },
                 
-                # Proyección final
+                # Final projection
                 {
                     "$project": {
                         "_id": 0,
@@ -335,28 +543,24 @@ def get_analysis_prompt(current_date: str, mongodb_client: Optional[MongoDBClien
     avance_esperado = round(day / dias_mes, 3)
     avance_esperado_pct = round(day / dias_mes * 100, 1)
     
-    # Intentar obtener el prompt desde MongoDB
+    # Try to get prompt from MongoDB
     if mongodb_client:
-        try:
-            prompt_data = mongodb_client.get_prompt_template("bedrock_analysis_prompt")
-            template = prompt_data["template"]
-            
-            # Reemplazar variables en el template
-            return template.format(
-                current_date=current_date,
-                year=year,
-                month=month,
-                day=day,
-                dias_mes=dias_mes,
-                dias_restantes=dias_restantes,
-                avance_esperado=avance_esperado,
-                avance_esperado_pct=avance_esperado_pct
-            )
-        except Exception as e:
-            # Si falla, usar el prompt por defecto (fallback)
-            print(f"Warning: Could not fetch prompt from MongoDB: {str(e)}. Using default prompt.")
+        prompt_data = mongodb_client.get_prompt_template("bedrock_analysis_prompt")
+        template = prompt_data["template"]
+        
+        # Replace variables in template
+        return template.format(
+            current_date=current_date,
+            year=year,
+            month=month,
+            day=day,
+            dias_mes=dias_mes,
+            dias_restantes=dias_restantes,
+            avance_esperado=avance_esperado,
+            avance_esperado_pct=avance_esperado_pct
+        )
     
-    # Prompt por defecto (fallback) - mantener el original como respaldo
+    # Default prompt (fallback) - keep original as backup
     return f"""
 Eres un Coach Ejecutivo de Ventas especializado en análisis de cartera y gestión de clientes.
 
@@ -383,7 +587,8 @@ Cada ejecutivo tendrá:
     monto_neto_mes_mean, avg_last3, avg_prev3, p25, p50, consec_below_p25, etc.
   * claims: total_reclamos, reclamos[] (numero_caso, motivo, subcategoria, estado, valor_reclamado, descripcion_caso)
   * pickups: cant_retiros_programados, cant_retiros_efectuados, lista_retiros[]
-  * recommendation: bedrock_recommendation (recomendación previa), execution_date, cluster
+  * recommendation: bedrock_recommendation (recomendación previa legacy), execution_date, cluster
+  * memory_recs: [] array con últimas 3 recomendaciones del sistema de memoria (recommendation, timestamp, metadata)
 
 METODOLOGÍA DE ANÁLISIS:
 
@@ -430,7 +635,49 @@ METODOLOGÍA DE ANÁLISIS:
      * "Ritmo justo": venta_diaria_actual >= venta_diaria_requerida * 0.7
      * "Necesita acelerar": venta_diaria_actual < venta_diaria_requerida * 0.7
 
-5) **GENERACIÓN DE SUGERENCIAS** (MÁXIMO 3 POR EJECUTIVO):
+5) **GENERACIÓN DE SUGERENCIAS CON SISTEMA DE MEMORIA** (MÁXIMO 3 POR EJECUTIVO):
+   
+   ⚠️⚠️⚠️ REGLA CRÍTICA - LEER ANTES DE GENERAR SUGERENCIAS ⚠️⚠️⚠️
+   
+   Cada cliente tiene un campo "memory_recs" con recomendaciones previas:
+   Ejemplo: "memory_recs": [
+     {{"rec": "Llamar - Cliente en riesgo crítico...", "timestamp": "2026-02-18"}},
+     {{"rec": "Reunión - Revisar reclamos activos...", "timestamp": "2026-02-17"}}
+   ]
+   
+   ANTES de generar una sugerencia para un cliente, debes:
+   
+   1. VERIFICAR si el cliente tiene "memory_recs" con datos
+   2. SI tiene memory_recs:
+      - LEER todas las recomendaciones previas
+      - IDENTIFICAR qué acciones ya se sugirieron (Llamar, Reunión, Visitar, etc.)
+      - IDENTIFICAR qué temas ya se abordaron (riesgo, reclamos, retiros, etc.)
+      - GENERAR una sugerencia COMPLETAMENTE DIFERENTE:
+        * Si ya se sugirió "Llamar", ahora sugiere "Reunión presencial" o "Visitar"
+        * Si ya se abordó "riesgo", ahora aborda "oportunidad" o "reclamos"
+        * Si ya se mencionó "retiros", ahora menciona "ventas" o "satisfacción"
+      - O MEJOR AÚN: ELIGE UN CLIENTE DIFERENTE que NO tenga memory_recs
+   
+   3. SI NO tiene memory_recs:
+      - Este cliente NO ha recibido recomendaciones recientes
+      - PRIORIZA este cliente sobre los que ya tienen memory_recs
+      - Genera una sugerencia nueva basada en sus métricas actuales
+   
+   ESTRATEGIA OBLIGATORIA:
+   - De los 9 clientes en la cartera, PRIORIZA los que NO tienen memory_recs
+   - Si todos tienen memory_recs, VARÍA completamente la acción y el enfoque
+   - NUNCA repitas la misma acción que aparece en memory_recs del cliente
+   
+   Ejemplo CORRECTO de variación:
+   Cliente A tiene memory_recs: [{{"rec": "Llamar - Cliente en riesgo", "timestamp": "2026-02-18"}}]
+   → NO sugieras "Llamar" nuevamente
+   → Sugiere: "Reunión presencial - Presentar plan de recuperación personalizado"
+   → O MEJOR: Elige Cliente B que NO tiene memory_recs
+   
+   Ejemplo INCORRECTO:
+   Cliente A tiene memory_recs: [{{"rec": "Llamar - Cliente en riesgo", "timestamp": "2026-02-18"}}]
+   → ❌ NO hagas: "Llamar - Cliente sigue en riesgo" (REPETICIÓN)
+   → ❌ NO hagas: "Contactar - Cliente en riesgo" (SIMILAR)
    
    REGLA CRÍTICA: Cada sugerencia DEBE seguir este formato:
    "ACCIÓN con CLIENTE [Nombre del Cliente - RUT]: RAZÓN ESPECÍFICA basada en datos"
@@ -445,9 +692,15 @@ METODOLOGÍA DE ANÁLISIS:
    ❌ "Mejorar la atención al cliente" (no es accionable, no especifica qué hacer)
    ❌ "Revisar cartera inactiva" (no indica cliente específico ni acción concreta)
    
+   ESTRATEGIAS PARA VARIAR RECOMENDACIONES:
+   - Si ayer sugeriste "Llamar", hoy sugiere "Reunión presencial" o "Visitar"
+   - Si ayer enfocaste en riesgo, hoy enfoca en oportunidad de crecimiento
+   - Si ayer priorizaste reclamos, hoy prioriza retiros o ventas
+   - Rota entre los 9 clientes de la cartera, no siempre los mismos 3
+   
    DISTRIBUCIÓN DE SUGERENCIAS:
-   - Sugerencia 1: Priorizar recomendación previa de Bedrock (si existe y es relevante)
-   - Sugerencia 2: Cliente de mayor riesgo (red/yellow con drop_flag=1)
+   - Sugerencia 1: Cliente de mayor riesgo (red/yellow con drop_flag=1) - VARÍA la acción si ya fue recomendado
+   - Sugerencia 2: Cliente con problemas operacionales (reclamos/retiros) - DIFERENTE al de ayer
    - Sugerencia 3: Cliente con problemas operacionales (reclamos activos o retiros fallidos) O cliente de alto valor con oportunidad
 
 6) **INFERENCIA ESTADÍSTICA**:

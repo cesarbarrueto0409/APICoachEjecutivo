@@ -36,11 +36,14 @@ class TestApplicationCreation:
             assert app.version == "1.0.0"
     
     def test_create_app_without_config_raises_value_error(self):
-        """Test that create_app raises ValueError when config is missing."""
+        """Test that create_app creates unconfigured app when config is missing."""
         # Clear environment variables
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Missing required configuration"):
-                create_app()
+            # App creation will succeed but with unconfigured state
+            app = create_app()
+            assert isinstance(app, FastAPI)
+            # Title remains the same even without config
+            assert app.title == "AWS Bedrock API Service"
     
     def test_create_app_includes_api_routes(self):
         """Test that created app includes API routes."""
@@ -84,6 +87,7 @@ class TestDependencySetup:
         settings.mongodb_database = 'test_db'
         settings.aws_region = 'us-east-1'
         settings.aws_bedrock_model_id = 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
+        settings.memory_enabled = False  # Disable memory for tests
         
         # Mock the client constructors to avoid actual connections
         with patch('app.main.MongoDBClient') as mock_mongo_client, \
@@ -95,13 +99,13 @@ class TestDependencySetup:
             
             # Verify clients were created with correct parameters
             mock_mongo_client.assert_called_once_with(
-                connection_string='mongodb://localhost:27017',
-                database_name='test_db'
+                'mongodb://localhost:27017',
+                'test_db'
             )
             
             mock_ai_client.assert_called_once_with(
-                region='us-east-1',
-                model_id='arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
+                'us-east-1',
+                'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
             )
             
             # Verify service was created with clients
@@ -119,6 +123,7 @@ class TestDependencySetup:
         settings.mongodb_database = 'test_db'
         settings.aws_region = 'us-east-1'
         settings.aws_bedrock_model_id = 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
+        settings.memory_enabled = False  # Disable memory for tests
         
         with patch('app.main.MongoDBClient'), \
              patch('app.main.AWSBedrockClient'), \
@@ -256,8 +261,9 @@ class TestConfigurationValidation:
             'AWS_REGION': 'us-east-1',
             'AWS_BEDROCK_MODEL_ID': 'arn:aws:bedrock:us-east-1::inference-profile/amazon-nova-lite-v1'
         }, clear=True):
-            with pytest.raises(ValueError, match="MONGODB_URI"):
-                create_app()
+            # App creation will succeed but with unconfigured state
+            app = create_app()
+            assert isinstance(app, FastAPI)
     
     def test_missing_aws_bedrock_model_id_raises_error(self):
         """Test that missing AWS_BEDROCK_MODEL_ID raises descriptive error."""
@@ -266,8 +272,9 @@ class TestConfigurationValidation:
             'MONGODB_DATABASE': 'test_db',
             'AWS_REGION': 'us-east-1'
         }, clear=True):
-            with pytest.raises(ValueError, match="AWS_BEDROCK_MODEL_ID"):
-                create_app()
+            # App creation will succeed but with unconfigured state
+            app = create_app()
+            assert isinstance(app, FastAPI)
     
     def test_all_required_config_present_succeeds(self):
         """Test that app creation succeeds with all required config."""

@@ -136,6 +136,81 @@ async def analyze_data(
             if "limit" in query_config:
                 query_params["limit"] = query_config["limit"]
         
+        # CRITICAL STEP: Check client availability and reset memory if needed
+        # This prevents AI from generating fake clients when insufficient clients are available
+        if service._memory_enabled:
+            from app.services.memory_reset_service import MemoryResetService
+            
+            # Get original data to check availability
+            original_data = service._data_client.query(query_params)
+            
+            # Create reset service
+            reset_service = MemoryResetService(
+                memory_store=service._memory_store,
+                mongodb_client=service._data_client
+            )
+            
+            # Check each executive
+            reset_actions = []
+            for ejecutivo in original_data:
+                exec_id = str(ejecutivo.get("id_ejecutivo", ""))
+                exec_name = ejecutivo.get("nombre_ejecutivo", "")
+                cartera = ejecutivo.get("cartera_detallada", [])
+                
+                # Apply pre-filtering to see how many clients remain available
+                import os
+                prefilter_days = int(os.getenv("PREFILTER_DAYS_THRESHOLD", "7"))
+                
+                # Count available clients (without recent memory_recs)
+                from datetime import datetime, timedelta
+                if request.current_date:
+                    ref_dt = datetime.fromisoformat(request.current_date.split('T')[0])
+                else:
+                    ref_dt = datetime.utcnow()
+                
+                cutoff_date = ref_dt - timedelta(days=prefilter_days)
+                cutoff_str = cutoff_date.isoformat()
+                
+                available_clients = []
+                for cliente in cartera:
+                    memory_recs = cliente.get("memory_recs", [])
+                    has_recent_rec = False
+                    
+                    if memory_recs:
+                        for rec in memory_recs:
+                            rec_timestamp = rec.get("timestamp", "")
+                            if rec_timestamp:
+                                rec_date = rec_timestamp.split('T')[0] if 'T' in rec_timestamp else rec_timestamp[:10]
+                                cutoff_date_str = cutoff_str.split('T')[0] if 'T' in cutoff_str else cutoff_str[:10]
+                                
+                                if rec_date > cutoff_date_str:
+                                    has_recent_rec = True
+                                    break
+                    
+                    if not has_recent_rec:
+                        available_clients.append(cliente)
+                
+                # Check and reset if needed
+                reset_result = reset_service.check_and_reset_if_needed(
+                    executive_id=exec_id,
+                    available_clients=available_clients,
+                    required_recommendations=3,
+                    days_threshold=prefilter_days,
+                    reference_date=request.current_date
+                )
+                
+                if reset_result['action'] != 'none':
+                    logger.warning(f"Executive {exec_name} ({exec_id}): {reset_result['message']}")
+                    reset_actions.append({
+                        "executive_id": exec_id,
+                        "executive_name": exec_name,
+                        "action": reset_result['action'],
+                        "embeddings_deleted": reset_result['embeddings_deleted']
+                    })
+            
+            if reset_actions:
+                logger.info(f"Memory reset executed for {len(reset_actions)} executives")
+        
         # Execute analysis with dynamically generated prompt
         result = service.execute_analysis(
             query_params=query_params,
@@ -150,12 +225,7 @@ async def analyze_data(
         analysis_text = analysis_result.get("analysis", "")
         
         # Parse analysis result
-        parsed_analysis = None
-        try:
-            if analysis_text.strip().startswith("{") or analysis_text.strip().startswith("["):
-                parsed_analysis = json.loads(analysis_text)
-        except json.JSONDecodeError:
-            pass
+        parsed_analysis = json.loads(analysis_text) if analysis_text.strip().startswith(("{", "[")) else None
         
         # Prepare base response
         response_data = {
@@ -173,30 +243,104 @@ async def analyze_data(
         
         # Send email notifications if data exists
         if result["data_count"] > 0 and parsed_analysis:
-            try:
-                # Create notification service with appropriate testing mode
-                notification_service = get_notification_service(is_testing=request.is_testing)
+            # Create notification service with appropriate testing mode
+            notification_service = get_notification_service(is_testing=request.is_testing)
+            
+            # Send notifications
+            notification_result = notification_service.send_analysis_notifications(
+                analysis_result={"data": parsed_analysis},
+                current_date=request.current_date
+            )
+            
+            response_data["email_notifications"] = notification_result
+            logger.info(f"Email notifications sent: {notification_result['total_sent']} successful, {notification_result['total_failed']} failed")
+            
+            # Store recommendations in database after successful analysis
+            if service._memory_enabled and isinstance(parsed_analysis, dict):
+                logger.info("Validating and storing recommendations...")
+                stored_count = 0
+                filtered_count = 0
+                invalid_count = 0
                 
-                # Send notifications
-                notification_result = notification_service.send_analysis_notifications(
-                    analysis_result={"data": parsed_analysis},
-                    current_date=request.current_date
-                )
+                # Get original data to validate client ownership
+                original_data = service._data_client.query(query_params)
                 
-                response_data["email_notifications"] = notification_result
-                logger.info(
-                    f"Email notifications sent: {notification_result['total_sent']} successful, "
-                    f"{notification_result['total_failed']} failed"
-                )
+                # Build mapping of executive_id -> client_ruts
+                exec_clients_map = {}
+                for exec_data in original_data:
+                    exec_id = str(exec_data.get("id_ejecutivo", ""))
+                    cartera = exec_data.get("cartera_detallada", [])
+                    client_ruts = set(str(c.get("rut_key")) for c in cartera)
+                    exec_clients_map[exec_id] = client_ruts
                 
-            except Exception as e:
-                logger.error(f"Failed to send email notifications: {str(e)}")
-                response_data["email_notifications"] = {
-                    "total_sent": 0,
-                    "total_failed": 0,
-                    "notifications": [],
-                    "error": str(e)
-                }
+                ejecutivos = parsed_analysis.get("ejecutivos", [])
+                for ejecutivo in ejecutivos:
+                    executive_id = str(ejecutivo.get("id_ejecutivo", ""))
+                    sugerencias = ejecutivo.get("sugerencias_clientes", [])
+                    
+                    # Validate: should have exactly 3 recommendations
+                    if len(sugerencias) != 3:
+                        logger.warning(f"Executive {executive_id} has {len(sugerencias)} recommendations (expected 3)")
+                    
+                    for sugerencia in sugerencias:
+                        client_rut = str(sugerencia.get("cliente_rut", ""))
+                        
+                        if not client_rut or not executive_id:
+                            invalid_count += 1
+                            logger.warning(f"Invalid recommendation: missing executive_id or client_rut")
+                            continue
+                        
+                        # Validate: client belongs to executive's portfolio
+                        if executive_id in exec_clients_map:
+                            if client_rut not in exec_clients_map[executive_id]:
+                                invalid_count += 1
+                                logger.warning(f"Invalid recommendation: Client {client_rut} does not belong to executive {executive_id}")
+                                continue
+                        
+                        # Build recommendation text
+                        rec_text = f"{sugerencia.get('accion', '')} - {sugerencia.get('razon', '')}"
+                        
+                        # Check against historical recommendations
+                        historical_recs = service._memory_store.get_historical_recommendations(
+                            executive_id=executive_id,
+                            client_id=client_rut,
+                            limit=10
+                        )
+                        
+                        # Generate embedding for new recommendation
+                        new_embedding = service._embedding_client.generate_embedding(rec_text)
+                        new_rec = {"recommendation": rec_text, "embedding": new_embedding}
+                        
+                        # Check similarity with historical recommendations
+                        should_filter, matching_rec = service._similarity_service.check_recommendation_similarity(
+                            new_recommendation=new_rec,
+                            historical_recommendations=historical_recs
+                        )
+                        
+                        if should_filter:
+                            filtered_count += 1
+                            logger.info(f"Filtered recommendation for executive {executive_id}, client {client_rut} (similar to recent)")
+                            continue
+                        
+                        # Store using memory store (with embeddings)
+                        service._memory_store.store_recommendation(
+                            executive_id=executive_id,
+                            client_id=client_rut,
+                            recommendation_text=rec_text,
+                            metadata={
+                                "prioridad": sugerencia.get("prioridad"),
+                                "accion": sugerencia.get("accion"),
+                                "origen": sugerencia.get("origen"),
+                                "cliente_nombre": sugerencia.get("cliente_nombre"),
+                                "status": "repeated_no_change" if matching_rec else "new"
+                            }
+                        )
+                        stored_count += 1
+                
+                logger.info(f"Recommendations processed: {stored_count} stored, {filtered_count} filtered, {invalid_count} invalid")
+                response_data["recommendations_stored"] = stored_count
+                response_data["recommendations_filtered"] = filtered_count
+                response_data["recommendations_invalid"] = invalid_count
         else:
             # No data to send emails for
             response_data["email_notifications"] = {
@@ -407,4 +551,157 @@ async def health_check_sendgrid() -> dict:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"SendGrid health check error: {str(e)}"
+        )
+
+
+@router.get(
+    "/health/sendgrid/test",
+    status_code=status.HTTP_200_OK,
+    summary="Test SendGrid email sending",
+    tags=["health"]
+)
+async def health_check_sendgrid_test() -> dict:
+    """
+    Test actual email sending with SendGrid.
+    
+    This endpoint attempts to send a real test email to verify that:
+    - SendGrid API is accessible
+    - Authentication is working
+    - Network/firewall allows SMTP connections
+    - SSL certificates are properly configured
+    
+    Returns:
+        - status: "success" or "failed"
+        - message: Result message
+        - details: Additional information about the test
+    """
+    try:
+        if _settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Settings not initialized"
+            )
+        
+        # Check if SendGrid is configured
+        if not _settings.sendgrid_api_key or not _settings.sendgrid_from_email:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="SendGrid not configured"
+            )
+        
+        # Create email client
+        email_client = SendGridEmailClient(
+            api_key=_settings.sendgrid_api_key,
+            from_email=_settings.sendgrid_from_email,
+            is_testing=True,
+            test_email_override=_settings.sendgrid_test_email or "test@example.com"
+        )
+        
+        # Attempt to send a test email
+        result = email_client.send_email(
+            to_email="health-check@example.com",
+            subject="SendGrid Health Check Test",
+            html_content="<p>This is an automated health check test email.</p>"
+        )
+        
+        if result["success"]:
+            return {
+                "status": "success",
+                "message": "Test email sent successfully",
+                "details": {
+                    "recipient": result["recipient"],
+                    "status_code": result["status_code"]
+                }
+            }
+        else:
+            return {
+                "status": "failed",
+                "message": "Failed to send test email",
+                "details": {
+                    "error": result["message"]
+                }
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SendGrid test error: {str(e)}")
+        return {
+            "status": "failed",
+            "message": "SendGrid test failed",
+            "details": {
+                "error": str(e)
+            }
+        }
+
+
+@router.get(
+    "/health/embedding",
+    status_code=status.HTTP_200_OK,
+    summary="Check Embedding Service connection",
+    tags=["health"]
+)
+async def health_check_embedding(
+    service: Annotated[AnalysisService, Depends(get_analysis_service)]
+) -> dict:
+    """
+    Check Embedding Service connection status.
+    
+    Returns:
+        - status: "connected", "disabled", or "not_configured"
+        - message: Connection status message
+        - model: Model name being used
+        - memory_enabled: Whether memory system is enabled
+    """
+    try:
+        if _settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Settings not initialized"
+            )
+        
+        # Check if memory system is enabled
+        if not _settings.memory_enabled:
+            return {
+                "status": "disabled",
+                "message": "Memory system is disabled by configuration",
+                "memory_enabled": False
+            }
+        
+        # Check if embedding client is configured
+        if not service._embedding_client:
+            return {
+                "status": "not_configured",
+                "message": "Embedding client not initialized",
+                "memory_enabled": _settings.memory_enabled
+            }
+        
+        # Try to generate a test embedding
+        try:
+            test_text = "Test connection"
+            embedding = service._embedding_client.generate_embedding(test_text)
+            
+            return {
+                "status": "connected",
+                "message": "Embedding service is healthy",
+                "model": _settings.embedding_model_name,
+                "memory_enabled": True,
+                "embedding_dimension": len(embedding),
+                "test_embedding_sample": embedding[:5]  # First 5 values
+            }
+            
+        except ConnectionError as e:
+            logger.error(f"Embedding service connection failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Embedding service connection failed: {str(e)}"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Embedding service health check error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Embedding service health check error: {str(e)}"
         )

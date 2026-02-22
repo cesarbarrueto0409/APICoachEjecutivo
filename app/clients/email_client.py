@@ -80,71 +80,40 @@ class SendGridEmailClient(IEmailClient):
         html_content: str,
         from_email: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Send email via SendGrid.
+        """Send email via SendGrid."""
+        # Determine actual recipient
+        actual_recipient = to_email
+        original_recipient = None
         
-        Args:
-            to_email: Recipient email address
-            subject: Email subject
-            html_content: HTML body content
-            from_email: Optional sender email (overrides default)
-            
-        Returns:
-            Dict with keys:
-                - success: bool indicating if email was sent
-                - status_code: HTTP status code from SendGrid
-                - message: Success or error message
-                - recipient: Actual recipient email
-                - original_recipient: Original recipient (if in testing mode)
-        """
-        try:
-            # Determine actual recipient
-            actual_recipient = to_email
-            original_recipient = None
-            
-            if self._is_testing:
-                original_recipient = to_email
-                actual_recipient = self._test_email_override
-                subject = f"[TEST] {subject}"
-                # Add original recipient info to body
-                html_content = f"""
-                <div style="background-color: #fff3cd; padding: 10px; margin-bottom: 20px; border: 1px solid #ffc107;">
-                    <strong>MODO TEST:</strong> Este correo originalmente iba dirigido a: {original_recipient}
-                </div>
-                {html_content}
-                """
-            
-            # Create message
-            message = Mail(
-                from_email=from_email or self._from_email,
-                to_emails=actual_recipient,
-                subject=subject,
-                html_content=html_content
-            )
-            
-            # Send via SendGrid
-            response = self._client.send(message)
-            
-            self._logger.info(
-                f"Email sent successfully to {actual_recipient} "
-                f"(original: {original_recipient or 'N/A'}), "
-                f"status: {response.status_code}"
-            )
-            
-            return {
-                "success": True,
-                "status_code": response.status_code,
-                "message": "Email sent successfully",
-                "recipient": actual_recipient,
-                "original_recipient": original_recipient
-            }
-            
-        except Exception as e:
-            self._logger.error(f"Failed to send email to {to_email}: {str(e)}")
-            return {
-                "success": False,
-                "status_code": None,
-                "message": str(e),
-                "recipient": to_email,
-                "original_recipient": None
-            }
+        if self._is_testing:
+            original_recipient = to_email
+            actual_recipient = self._test_email_override
+            subject = f"[TEST] {subject}"
+            # Add original recipient info to body
+            html_content = f"""
+            <div style="background-color: #fff3cd; padding: 10px; margin-bottom: 20px; border: 1px solid #ffc107;">
+                <strong>TEST MODE:</strong> This email was originally intended for: {original_recipient}
+            </div>
+            {html_content}
+            """
+        
+        # Create message
+        message = Mail(
+            from_email=from_email or self._from_email,
+            to_emails=actual_recipient,
+            subject=subject,
+            html_content=html_content
+        )
+        
+        # Send via SendGrid
+        response = self._client.send(message)
+        
+        self._logger.info(f"Email sent successfully to {actual_recipient} (original: {original_recipient or 'N/A'}), status: {response.status_code}")
+        
+        return {
+            "success": True,
+            "status_code": response.status_code,
+            "message": "Email sent successfully",
+            "recipient": actual_recipient,
+            "original_recipient": original_recipient
+        }

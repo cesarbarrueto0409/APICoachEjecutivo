@@ -53,30 +53,20 @@ class AWSBedrockClient(IAIClient):
     
     def connect(self) -> None:
         """Establish connection to AWS Bedrock service."""
-        try:
-            # boto3 will automatically use AWS_BEARER_TOKEN_BEDROCK from environment
-            # No need to pass credentials explicitly
-            self._client = boto3.client(
-                service_name="bedrock-runtime",
-                region_name=self._region
-            )
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to AWS Bedrock service: {str(e)}") from e
+        # boto3 will automatically use AWS_BEARER_TOKEN_BEDROCK from environment
+        self._client = boto3.client(
+            service_name="bedrock-runtime",
+            region_name=self._region
+        )
     
     def analyze(self, data: List[Dict[str, Any]], prompt: Optional[str] = None) -> Dict[str, Any]:
         """Send data to AWS Bedrock model for analysis."""
         if self._client is None:
             raise ConnectionError("Client not connected. Call connect() first.")
         
-        try:
-            messages = self._format_request(data, prompt)
-            response = self._invoke_model(messages)
-            return self._parse_response(response)
-        except ClientError as e:
-            error_msg = e.response.get('Error', {}).get('Message', str(e))
-            raise Exception(f"AWS Bedrock service error: {error_msg}") from e
-        except Exception as e:
-            raise Exception(f"Failed to analyze data: {str(e)}") from e
+        messages = self._format_request(data, prompt)
+        response = self._invoke_model(messages)
+        return self._parse_response(response)
     
     def _format_request(self, data: List[Dict[str, Any]], prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """Format data and prompt for AWS Bedrock API."""
@@ -100,6 +90,102 @@ class AWSBedrockClient(IAIClient):
         ]
         
         return messages
+    
+    def _prefilter_clients_by_memory(self, data: List[Dict[str, Any]], days_threshold: int = 1, reference_date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Pre-filter clients that were recommended recently to ensure diversity.
+        
+        This function removes clients from the cartera_detallada that have been
+        recommended within the last N days, forcing the AI to recommend different clients.
+        
+        Cooldown logic:
+        - If days_threshold = 7, a client recommended on day 0 can be recommended again on day 7
+        - Example: Recommended on 2026-02-18, can be recommended again on 2026-02-25 (7 days later)
+        
+        Args:
+            data: List of executive data with cartera_detallada
+            days_threshold: Number of days for cooldown period (default: 1 = yesterday)
+            reference_date: Optional reference date in ISO format (YYYY-MM-DD). If None, uses current date.
+            
+        Returns:
+            Filtered data with clients removed if they were recommended recently
+        """
+        from datetime import datetime, timedelta
+        
+        # Use reference date if provided, otherwise use current date
+        if reference_date:
+            ref_dt = datetime.fromisoformat(reference_date.split('T')[0])
+        else:
+            ref_dt = datetime.utcnow()
+        
+        # Calculate cutoff date: recommendations AFTER this date will be filtered
+        # For 7-day cooldown: if today is 2026-02-25, cutoff is 2026-02-18 00:00:00
+        # Recommendations from 2026-02-18 00:00:01 onwards will be filtered
+        cutoff_date = ref_dt - timedelta(days=days_threshold)
+        cutoff_str = cutoff_date.isoformat()
+        
+        filtered_data = []
+        total_removed = 0
+        total_kept = 0
+        
+        for ejecutivo in data:
+            filtered_ejecutivo = ejecutivo.copy()
+            cartera = ejecutivo.get("cartera_detallada", [])
+            
+            if not cartera:
+                filtered_data.append(filtered_ejecutivo)
+                continue
+            
+            # Filter clients
+            filtered_cartera = []
+            removed_count = 0
+            
+            for cliente in cartera:
+                memory_recs = cliente.get("memory_recs", [])
+                
+                # Check if client has recent recommendations
+                has_recent_rec = False
+                if memory_recs:
+                    for rec in memory_recs:
+                        rec_timestamp = rec.get("timestamp", "")
+                        if rec_timestamp:
+                            # Extract only the date part (YYYY-MM-DD) for comparison
+                            # This ensures that all recommendations from the same day are treated equally
+                            rec_date = rec_timestamp.split('T')[0] if 'T' in rec_timestamp else rec_timestamp[:10]
+                            cutoff_date_str = cutoff_str.split('T')[0] if 'T' in cutoff_str else cutoff_str[:10]
+                            
+                            # Filter if recommendation date is AFTER cutoff date
+                            # Example: If cutoff is 2026-02-18
+                            #   - Rec from 2026-02-19 → FILTERED (too recent)
+                            #   - Rec from 2026-02-18 → FILTERED (too recent)
+                            #   - Rec from 2026-02-17 → NOT FILTERED (old enough)
+                            # This means: cooldown of 7 days = can recommend again on day 8
+                            if rec_date > cutoff_date_str:
+                                has_recent_rec = True
+                                break
+                
+                if has_recent_rec:
+                    # Skip this client (was recommended recently)
+                    removed_count += 1
+                    total_removed += 1
+                else:
+                    # Include this client
+                    filtered_cartera.append(cliente)
+                    total_kept += 1
+            
+            # Update cartera with filtered list
+            filtered_ejecutivo["cartera_detallada"] = filtered_cartera
+            
+            # Add metadata about filtering
+            if removed_count > 0:
+                filtered_ejecutivo["_prefilter_note"] = f"{removed_count} clients filtered (recommended in last {days_threshold} days)"
+            
+            filtered_data.append(filtered_ejecutivo)
+        
+        # Log filtering results
+        if total_removed > 0:
+            print(f"Pre-filtering: Removed {total_removed} clients, kept {total_kept} clients (threshold: {days_threshold} days)")
+        
+        return filtered_data
     
     def _optimize_data_for_tokens(self, data: List[Dict[str, Any]], max_clients_per_exec: int = 30) -> List[Dict[str, Any]]:
         """Optimize data structure to reduce token count while preserving essential information.
@@ -244,6 +330,18 @@ class AWSBedrockClient(IAIClient):
                             rec_text = str(rec.get('bedrock_recommendation', ''))[:200]
                             optimized_cliente['prev_rec'] = rec_text
                     
+                    # Include memory_recs (last 3 recommendations from memory system)
+                    if 'memory_recs' in cliente and cliente['memory_recs']:
+                        memory_recs = cliente['memory_recs']
+                        # Include last 3 recommendations with timestamp
+                        optimized_cliente['memory_recs'] = [
+                            {
+                                'rec': rec.get('recommendation', '')[:150],  # Truncar a 150 chars
+                                'timestamp': rec.get('timestamp', '')[:10]  # Solo fecha YYYY-MM-DD
+                            }
+                            for rec in memory_recs[:3]
+                        ]
+                    
                     optimized_cartera.append(optimized_cliente)
                 
                 # Add note if clients were limited
@@ -255,6 +353,75 @@ class AWSBedrockClient(IAIClient):
             optimized.append(optimized_item)
         
         return optimized
+    def prefilter_clients_by_memory(self, data: List[Dict[str, Any]], days_threshold: int = 1) -> List[Dict[str, Any]]:
+        """Pre-filter clients that were recommended recently to ensure diversity.
+
+        This function removes clients from the cartera_detallada that have been
+        recommended within the last N days, forcing the AI to recommend different clients.
+
+        Args:
+            data: List of executive data with cartera_detallada
+            days_threshold: Number of days to consider as "recent" (default: 1 = yesterday)
+
+        Returns:
+            Filtered data with clients removed if they were recommended recently
+        """
+        from datetime import datetime, timedelta
+
+        cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
+        cutoff_str = cutoff_date.isoformat()
+
+        filtered_data = []
+        total_removed = 0
+        total_kept = 0
+
+        for ejecutivo in data:
+            filtered_ejecutivo = ejecutivo.copy()
+            cartera = ejecutivo.get("cartera_detallada", [])
+
+            if not cartera:
+                filtered_data.append(filtered_ejecutivo)
+                continue
+
+            # Filter clients
+            filtered_cartera = []
+            removed_count = 0
+
+            for cliente in cartera:
+                memory_recs = cliente.get("memory_recs", [])
+
+                # Check if client has recent recommendations
+                has_recent_rec = False
+                if memory_recs:
+                    for rec in memory_recs:
+                        rec_timestamp = rec.get("timestamp", "")
+                        if rec_timestamp and rec_timestamp > cutoff_str:
+                            has_recent_rec = True
+                            break
+
+                if has_recent_rec:
+                    # Skip this client (was recommended recently)
+                    removed_count += 1
+                    total_removed += 1
+                else:
+                    # Include this client
+                    filtered_cartera.append(cliente)
+                    total_kept += 1
+
+            # Update cartera with filtered list
+            filtered_ejecutivo["cartera_detallada"] = filtered_cartera
+
+            # Add metadata about filtering
+            if removed_count > 0:
+                filtered_ejecutivo["_prefilter_note"] = f"{removed_count} clients filtered (recommended in last {days_threshold} days)"
+
+            filtered_data.append(filtered_ejecutivo)
+
+        # Log filtering results
+        if total_removed > 0:
+            print(f"Pre-filtering: Removed {total_removed} clients, kept {total_kept} clients (threshold: {days_threshold} days)")
+
+        return filtered_data
     
     def _invoke_model(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Invoke AWS Bedrock model using converse API."""
@@ -280,45 +447,42 @@ class AWSBedrockClient(IAIClient):
     
     def _parse_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """Parse AWS Bedrock response into standardized format."""
-        try:
-            # Extract text from response
-            analysis_text = response["output"]["message"]["content"][0]["text"]
-            
-            # Clean markdown code blocks from JSON responses
-            analysis_text = self._clean_markdown_json(analysis_text)
-            
-            # Extract metadata
-            metadata = {
-                "model": self._model_id,
-                "region": self._region
+        # Extract text from response
+        analysis_text = response["output"]["message"]["content"][0]["text"]
+        
+        # Clean markdown code blocks from JSON responses
+        analysis_text = self._clean_markdown_json(analysis_text)
+        
+        # Extract metadata
+        metadata = {
+            "model": self._model_id,
+            "region": self._region
+        }
+        
+        # Extract token usage if available
+        if "usage" in response:
+            usage = response["usage"]
+            metadata["tokens"] = {
+                "prompt": usage.get("inputTokens"),
+                "completion": usage.get("outputTokens"),
+                "total": usage.get("totalTokens")
             }
             
-            # Extract token usage if available
-            if "usage" in response:
-                usage = response["usage"]
-                metadata["tokens"] = {
-                    "prompt": usage.get("inputTokens"),
-                    "completion": usage.get("outputTokens"),
-                    "total": usage.get("totalTokens")
+            # Calculate cost if token usage is available
+            if "inputTokens" in usage and "outputTokens" in usage:
+                input_cost = (usage["inputTokens"] / 1000) * self._input_price_per_1k_tokens
+                output_cost = (usage["outputTokens"] / 1000) * self._output_price_per_1k_tokens
+                metadata["cost"] = {
+                    "input": round(input_cost, 6),
+                    "output": round(output_cost, 6),
+                    "total": round(input_cost + output_cost, 6)
                 }
-                
-                # Calculate cost if token usage is available
-                if "inputTokens" in usage and "outputTokens" in usage:
-                    input_cost = (usage["inputTokens"] / 1000) * self._input_price_per_1k_tokens
-                    output_cost = (usage["outputTokens"] / 1000) * self._output_price_per_1k_tokens
-                    metadata["cost"] = {
-                        "input": round(input_cost, 6),
-                        "output": round(output_cost, 6),
-                        "total": round(input_cost + output_cost, 6)
-                    }
-            
-            return {
-                "analysis": analysis_text,
-                "confidence": None,
-                "metadata": metadata
-            }
-        except (KeyError, IndexError, TypeError) as e:
-            raise RuntimeError("Unexpected response structure from Bedrock converse call") from e
+        
+        return {
+            "analysis": analysis_text,
+            "confidence": None,
+            "metadata": metadata
+        }
     
     def _clean_markdown_json(self, text: str) -> str:
         """Remove markdown code block formatting from JSON responses."""

@@ -1,3 +1,1 @@
-"""
-Test suite for Azure AI API Service.
-"""
+"""Test suite for AWS Bedrock API Service."""

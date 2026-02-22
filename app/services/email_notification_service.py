@@ -186,436 +186,187 @@ class EmailNotificationService:
             status_color = "#dc3545"
             status_emoji = "🔴"
         
-        # Build HTML with modern design
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body {{ 
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                    line-height: 1.6; 
-                    color: #333; 
-                    background-color: #f5f7fa;
-                    margin: 0;
-                    padding: 0;
-                }}
-                .container {{ 
-                    max-width: 650px; 
-                    margin: 20px auto; 
-                    background-color: #ffffff;
-                    border-radius: 12px;
-                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                    overflow: hidden;
-                }}
-                .header {{ 
-                    background: linear-gradient(135deg, #003d7a 0%, #0056b3 100%);
-                    color: white !important; 
-                    padding: 30px 20px; 
-                    text-align: center; 
-                }}
-                .header h1 {{ 
-                    margin: 0 0 10px 0; 
-                    font-size: 28px; 
-                    font-weight: 600;
-                    color: white !important;
-                }}
-                .header p {{ 
-                    margin: 5px 0; 
-                    font-size: 16px; 
-                    opacity: 0.95;
-                    color: white !important;
-                }}
-                .status-badge {{ 
-                    background-color: {status_color}; 
-                    color: white; 
-                    padding: 15px 20px; 
-                    margin: 0;
-                    text-align: center; 
-                    font-size: 20px; 
-                    font-weight: 600;
-                    border-bottom: 4px solid rgba(0,0,0,0.1);
-                }}
-                .content {{ 
-                    padding: 30px 25px; 
-                }}
-                .section {{ 
-                    margin-bottom: 30px; 
-                }}
-                .section-title {{ 
-                    font-size: 20px; 
-                    font-weight: 600; 
-                    color: #003d7a !important; 
-                    margin-bottom: 15px;
-                    padding-bottom: 8px;
-                    border-bottom: 2px solid #e9ecef;
-                }}
-                .metrics-grid {{ 
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 15px;
-                    margin-bottom: 20px;
-                }}
-                .metric-card {{ 
-                    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                    padding: 15px; 
-                    border-radius: 8px;
-                    border-left: 4px solid #003d7a;
-                }}
-                .metric-label {{ 
-                    font-size: 12px; 
-                    color: #6c757d; 
-                    text-transform: uppercase; 
-                    font-weight: 600;
-                    margin-bottom: 5px;
-                }}
-                .metric-value {{ 
-                    font-size: 22px; 
-                    font-weight: 700; 
-                    color: #003d7a;
-                }}
-                .metric-value.small {{ 
-                    font-size: 18px; 
-                }}
-                .progress-bar-container {{ 
-                    background-color: #e9ecef; 
-                    height: 30px; 
-                    border-radius: 15px; 
-                    overflow: hidden;
-                    margin: 15px 0;
-                    position: relative;
-                }}
-                .progress-bar {{ 
-                    background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
-                    height: 100%; 
-                    border-radius: 15px;
-                    transition: width 0.3s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-weight: 600;
-                    font-size: 14px;
-                }}
-                .progress-bar.warning {{ 
-                    background: linear-gradient(90deg, #ffc107 0%, #ffb300 100%);
-                }}
-                .progress-bar.danger {{ 
-                    background: linear-gradient(90deg, #dc3545 0%, #c82333 100%);
-                }}
-                .diagnostico-box {{ 
-                    background-color: #f8f9fa; 
-                    padding: 20px; 
-                    border-radius: 8px;
-                    border-left: 4px solid #17a2b8;
-                    font-size: 15px;
-                    line-height: 1.7;
-                }}
-                .sugerencia-card {{ 
-                    background-color: #ffffff; 
-                    border: 2px solid #e9ecef;
-                    border-radius: 8px; 
-                    padding: 18px; 
-                    margin-bottom: 15px;
-                    transition: transform 0.2s, box-shadow 0.2s;
-                }}
-                .sugerencia-card:hover {{ 
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                }}
-                .sugerencia-card.critica {{ 
-                    border-left: 5px solid #dc3545;
-                    background: linear-gradient(to right, #fff5f5 0%, #ffffff 100%);
-                }}
-                .sugerencia-card.alta {{ 
-                    border-left: 5px solid #ff8c00;
-                    background: linear-gradient(to right, #fff8f0 0%, #ffffff 100%);
-                }}
-                .sugerencia-card.media {{ 
-                    border-left: 5px solid #ffc107;
-                    background: linear-gradient(to right, #fffbf0 0%, #ffffff 100%);
-                }}
-                .sugerencia-header {{ 
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 12px;
-                }}
-                .sugerencia-prioridad {{ 
-                    font-size: 11px; 
-                    font-weight: 700; 
-                    padding: 4px 10px; 
-                    border-radius: 12px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }}
-                .sugerencia-prioridad.critica {{ 
-                    background-color: #dc3545; 
-                    color: white; 
-                }}
-                .sugerencia-prioridad.alta {{ 
-                    background-color: #ff8c00; 
-                    color: white; 
-                }}
-                .sugerencia-prioridad.media {{ 
-                    background-color: #ffc107; 
-                    color: #000; 
-                }}
-                .sugerencia-cliente {{ 
-                    font-size: 18px; 
-                    font-weight: 600; 
-                    color: #003d7a;
-                    margin-bottom: 8px;
-                }}
-                .sugerencia-rut {{ 
-                    font-size: 13px; 
-                    color: #6c757d;
-                    margin-bottom: 10px;
-                }}
-                .sugerencia-accion {{ 
-                    font-size: 15px; 
-                    font-weight: 600; 
-                    color: #0056b3;
-                    margin-bottom: 8px;
-                }}
-                .sugerencia-razon {{ 
-                    font-size: 14px; 
-                    color: #495057;
-                    line-height: 1.6;
-                }}
-                .alert-box {{ 
-                    background-color: #fff3cd; 
-                    border: 1px solid #ffc107; 
-                    border-left: 4px solid #ffc107;
-                    padding: 15px; 
-                    margin: 10px 0; 
-                    border-radius: 6px;
-                    font-size: 14px;
-                }}
-                .risk-indicators {{ 
-                    display: flex;
-                    gap: 10px;
-                    margin: 15px 0;
-                }}
-                .risk-badge {{ 
-                    flex: 1;
-                    text-align: center;
-                    padding: 12px;
-                    border-radius: 8px;
-                    font-weight: 600;
-                }}
-                .risk-badge.high {{ 
-                    background-color: #f8d7da;
-                    color: #721c24;
-                    border: 1px solid #f5c6cb;
-                }}
-                .risk-badge.medium {{ 
-                    background-color: #fff3cd;
-                    color: #856404;
-                    border: 1px solid #ffeaa7;
-                }}
-                .risk-badge.low {{ 
-                    background-color: #d4edda;
-                    color: #155724;
-                    border: 1px solid #c3e6cb;
-                }}
-                .footer {{ 
-                    background-color: #f8f9fa;
-                    text-align: center; 
-                    color: #6c757d; 
-                    font-size: 13px; 
-                    padding: 25px 20px;
-                    border-top: 1px solid #dee2e6;
-                }}
-                .footer p {{ 
-                    margin: 5px 0; 
-                }}
-                @media only screen and (max-width: 600px) {{
-                    .metrics-grid {{ 
-                        grid-template-columns: 1fr;
-                    }}
-                    .container {{ 
-                        margin: 10px; 
-                    }}
-                    .content {{ 
-                        padding: 20px 15px; 
-                    }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <!-- Header -->
-                <div class="header">
-                    <h1>📊 Reporte Coach Ejecutivo</h1>
-                    <p><strong>{nombre}</strong></p>
-                    <p>📅 {current_date}</p>
-                </div>
-                
-                <!-- Status Badge -->
-                <div class="status-badge">
-                    {status_emoji} {estado}
-                </div>
-                
-                <!-- Content -->
-                <div class="content">
-                    <!-- Métricas de Ventas -->
-                    <div class="section">
-                        <div class="section-title">💰 Métricas de Ventas</div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-card">
-                                <div class="metric-label">Ventas Acumuladas</div>
-                                <div class="metric-value">${ventas:,.0f}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Meta del Mes</div>
-                                <div class="metric-value">${meta:,.0f}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Faltante</div>
-                                <div class="metric-value small">${faltante:,.0f}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Días Restantes</div>
-                                <div class="metric-value">{dias_restantes}</div>
-                            </div>
-                        </div>
-                        
-                        <div class="progress-bar-container">
-                            <div class="progress-bar {'warning' if avance_pct < avance_esperado else ''} {'danger' if avance_pct < 0.3 else ''}" style="width: {min(avance_pct * 100, 100):.1f}%">
-                                {avance_pct:.1%} de avance
-                            </div>
-                        </div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-card">
-                                <div class="metric-label">Venta Diaria Actual</div>
-                                <div class="metric-value small">${venta_diaria_actual:,.0f}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Venta Diaria Requerida</div>
-                                <div class="metric-value small">${venta_diaria_requerida:,.0f}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Análisis de Cartera -->
-                    <div class="section">
-                        <div class="section-title">👥 Análisis de Cartera</div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-card">
-                                <div class="metric-label">Total Clientes</div>
-                                <div class="metric-value">{total_clientes}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Clientes Activos</div>
-                                <div class="metric-value">{clientes_activos}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">% Activación</div>
-                                <div class="metric-value small">{porcentaje_activacion:.1f}%</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Total Reclamos</div>
-                                <div class="metric-value">{total_reclamos}</div>
-                            </div>
-                        </div>
-                        
-                        <div class="risk-indicators">
-                            <div class="risk-badge high">
-                                <div style="font-size: 24px; margin-bottom: 5px;">{clientes_riesgo_alto}</div>
-                                <div style="font-size: 11px;">Riesgo ALTO</div>
-                            </div>
-                            <div class="risk-badge medium">
-                                <div style="font-size: 24px; margin-bottom: 5px;">{clientes_riesgo_medio}</div>
-                                <div style="font-size: 11px;">Riesgo MEDIO</div>
-                            </div>
-                            <div class="risk-badge low">
-                                <div style="font-size: 24px; margin-bottom: 5px;">{reclamos_activos}</div>
-                                <div style="font-size: 11px;">Reclamos Activos</div>
-                            </div>
-                        </div>
-                        
-                        {f'<div class="metric-card" style="margin-top: 15px;"><div class="metric-label">Tasa Cumplimiento Retiros</div><div class="metric-value small">{tasa_retiros*100:.1f}%</div></div>' if tasa_retiros > 0 else ''}
-                    </div>
-                    
-                    <!-- Diagnóstico -->
-                    <div class="section">
-                        <div class="section-title">🔍 Diagnóstico</div>
-                        <div class="diagnostico-box">
-                            {diagnostico}
-                        </div>
-                    </div>
-                    
-                    <!-- Sugerencias de Acción -->
-                    <div class="section">
-                        <div class="section-title">🎯 Acciones Prioritarias con Clientes</div>
-        """
+        # Progress bar
+        if avance_pct < 0.3:
+            progress_color = "#dc3545"
+        elif avance_pct < avance_esperado:
+            progress_color = "#ffc107"
+        else:
+            progress_color = "#28a745"
+        
+        progress_width = int(min(avance_pct * 100, 100))
+        
+        # Build HTML - Outlook compatible (ONLY inline styles, NO <style> tag)
+        html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;">
+<tr><td align="center" style="padding:20px;">
+<table width="650" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border:1px solid #cccccc;">
+<tr><td style="padding:25px 20px;text-align:center;border-bottom:4px solid #0056b3;">
+<h1 style="margin:0 0 10px 0;font-size:26px;font-weight:bold;color:#0056b3;">📊 Reporte Coach Ejecutivo</h1>
+<p style="margin:5px 0;font-size:16px;color:#000000;"><strong>{nombre}</strong></p>
+<p style="margin:5px 0;font-size:14px;color:#666666;">{current_date}</p>
+</td></tr>
+<tr><td style="background-color:{status_color};color:#ffffff;padding:15px 20px;text-align:center;font-size:20px;font-weight:bold;">
+{status_emoji} {estado}
+</td></tr>
+<tr><td style="padding:25px 20px;">
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px;">
+<tr><td style="font-size:20px;font-weight:bold;color:#000000;padding-bottom:8px;border-bottom:3px solid #0056b3;">💰 Métricas de Ventas</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Ventas Acumuladas</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">${ventas:,.0f}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Meta del Mes</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">${meta:,.0f}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Faltante</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">${faltante:,.0f}</div>
+</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e0e0e0;height:30px;">
+<tr>
+<td width="{progress_width}%" style="background-color:{progress_color};color:#ffffff;text-align:center;font-weight:bold;font-size:14px;padding:5px 0;">{avance_pct:.1%}</td>
+<td width="{100-progress_width}%" style="background-color:#e0e0e0;"></td>
+</tr>
+</table>
+</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Venta Diaria Actual</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">${venta_diaria_actual:,.0f}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Venta Diaria Requerida</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">${venta_diaria_requerida:,.0f}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e3f2fd;padding:12px;border-left:4px solid #0056b3;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Días Restantes</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">{dias_restantes}</div>
+</td></tr>
+</table>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px;">
+<tr><td style="font-size:20px;font-weight:bold;color:#000000;padding-bottom:8px;border-bottom:3px solid #0056b3;">👥 Análisis de Cartera</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td style="background-color:#e8f5e9;padding:12px;border-left:4px solid #4caf50;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Total Clientes</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">{total_clientes}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e8f5e9;padding:12px;border-left:4px solid #4caf50;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Clientes Activos</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">{clientes_activos}</div>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e8f5e9;padding:12px;border-left:4px solid #4caf50;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Porcentaje de Activación</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">{porcentaje_activacion:.1f}%</div>
+</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td style="background-color:#fff3e0;padding:15px;border-left:4px solid #ff9800;">
+<span style="font-size:14px;color:#000000;font-weight:bold;margin-right:20px;">Riesgo ALTO: <strong style="font-size:18px;color:#d32f2f;">{clientes_riesgo_alto}</strong></span>
+<span style="font-size:14px;color:#000000;font-weight:bold;margin-right:20px;">Riesgo MEDIO: <strong style="font-size:18px;color:#f57c00;">{clientes_riesgo_medio}</strong></span>
+<span style="font-size:14px;color:#000000;font-weight:bold;">Reclamos: <strong style="font-size:18px;color:#1976d2;">{reclamos_activos}</strong></span>
+</td></tr>
+<tr><td style="height:12px;"></td></tr>
+<tr><td style="background-color:#e8f5e9;padding:12px;border-left:4px solid #4caf50;">
+<div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Total Reclamos</div>
+<div style="font-size:22px;font-weight:bold;color:#000000;">{total_reclamos}</div>
+</td></tr>
+{f'<tr><td style="height:12px;"></td></tr><tr><td style="background-color:#e8f5e9;padding:12px;border-left:4px solid #4caf50;"><div style="font-size:14px;color:#000000;font-weight:bold;margin-bottom:5px;">Tasa Cumplimiento Retiros</div><div style="font-size:22px;font-weight:bold;color:#000000;">{tasa_retiros*100:.1f}%</div></td></tr>' if tasa_retiros > 0 else ''}
+</table>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px;">
+<tr><td style="font-size:20px;font-weight:bold;color:#000000;padding-bottom:8px;border-bottom:3px solid #0056b3;">🔍 Diagnóstico</td></tr>
+<tr><td style="height:15px;"></td></tr>
+<tr><td style="background-color:#e1f5fe;padding:15px;border-left:4px solid #0288d1;font-size:15px;color:#000000;">{diagnostico}</td></tr>
+</table>
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px;">
+<tr><td style="font-size:20px;font-weight:bold;color:#000000;padding-bottom:8px;border-bottom:3px solid #0056b3;">🎯 Acciones Prioritarias</td></tr>
+<tr><td style="height:15px;"></td></tr>
+"""
         
         # Add sugerencias
         if sugerencias:
             for sug in sugerencias:
-                prioridad = sug.get('prioridad', 'MEDIA').lower()
+                prioridad = sug.get('prioridad', 'MEDIA').upper()
                 cliente_nombre = sug.get('cliente_nombre', 'N/A')
                 cliente_rut = sug.get('cliente_rut', 'N/A')
                 accion = sug.get('accion', 'N/A')
                 razon = sug.get('razon', 'N/A')
                 
-                # Emoji por prioridad
-                emoji_prioridad = {
-                    'crítica': '🔴',
-                    'alta': '🟠',
-                    'media': '🟡'
-                }.get(prioridad, '⚪')
+                # Set colors based on priority (pastel backgrounds)
+                if 'CRÍTICA' in prioridad or 'CRITICA' in prioridad:
+                    border_color = "#dc3545"
+                    bg_color = "#ffe6e6"
+                    badge_bg = "#ffcccc"
+                    badge_text = "#000000"
+                elif 'ALTA' in prioridad:
+                    border_color = "#ff8c00"
+                    bg_color = "#fff4e6"
+                    badge_bg = "#ffd699"
+                    badge_text = "#000000"
+                else:  # MEDIA
+                    border_color = "#ffc107"
+                    bg_color = "#fffbf0"
+                    badge_bg = "#ffe680"
+                    badge_text = "#000000"
                 
-                html += f"""
-                        <div class="sugerencia-card {prioridad}">
-                            <div class="sugerencia-header">
-                                <span class="sugerencia-prioridad {prioridad}">{emoji_prioridad} {sug.get('prioridad', 'MEDIA')}</span>
-                            </div>
-                            <div class="sugerencia-cliente">{cliente_nombre}</div>
-                            <div class="sugerencia-rut">RUT: {cliente_rut}</div>
-                            <div class="sugerencia-accion">✅ Acción: {accion}</div>
-                            <div class="sugerencia-razon">{razon}</div>
-                        </div>
-                """
+                html += f"""<tr><td style="background-color:{bg_color};border:2px solid {border_color};border-left:5px solid {border_color};padding:15px;margin-bottom:15px;">
+<div style="margin-bottom:10px;">
+<span style="background-color:{badge_bg};color:{badge_text};font-size:12px;font-weight:bold;padding:5px 10px;border-radius:3px;display:inline-block;">{prioridad}</span>
+</div>
+<div style="font-size:18px;font-weight:bold;color:#000000;margin-bottom:8px;">{cliente_nombre}</div>
+<div style="font-size:13px;color:#333333;margin-bottom:10px;">RUT: {cliente_rut}</div>
+<div style="font-size:15px;font-weight:bold;color:#000000;margin-bottom:8px;">Acción: {accion}</div>
+<div style="font-size:14px;color:#000000;">{razon}</div>
+</td></tr>
+<tr><td style="height:15px;"></td></tr>
+"""
         else:
-            html += """
-                        <div class="diagnostico-box">
-                            No hay sugerencias específicas en este momento. Continúa con el seguimiento regular de tu cartera.
-                        </div>
-            """
+            html += """<tr><td style="background-color:#e1f5fe;padding:15px;border-left:4px solid #0288d1;font-size:15px;color:#000000;">No hay sugerencias en este momento.</td></tr>
+"""
         
-        html += """
-                    </div>
-        """
+        html += """</table>
+"""
         
         # Add alertas
         if alertas:
-            html += """
-                    <div class="section">
-                        <div class="section-title">⚠️ Alertas Importantes</div>
-            """
+            html += """<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px;">
+<tr><td style="font-size:20px;font-weight:bold;color:#000000;padding-bottom:8px;border-bottom:3px solid #0056b3;">⚠️ Alertas Importantes</td></tr>
+<tr><td style="height:15px;"></td></tr>
+"""
             for alerta in alertas:
-                html += f'<div class="alert-box">⚠️ {alerta}</div>\n'
-            html += "</div>"
+                html += f"""<tr><td style="background-color:#fff3cd;border:2px solid #ffc107;border-left:5px solid #ffc107;padding:15px;margin:10px 0;font-size:14px;color:#000000;">{alerta}</td></tr>
+<tr><td style="height:10px;"></td></tr>
+"""
+            html += """</table>
+"""
         
-        html += f"""
-                </div>
-                
-                <!-- Footer -->
-                <div class="footer">
-                    <p><strong>Coach Ejecutivo Chilexpress</strong></p>
-                    <p>Este es un reporte automático generado por el sistema de análisis de ventas</p>
-                    <p style="margin-top: 15px; font-size: 12px;">Para consultas o soporte, contacta al equipo de análisis</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        html += f"""</td></tr>
+<tr><td style="background-color:#f8f9fa;text-align:center;color:#666666;font-size:13px;padding:20px;border-top:1px solid #dee2e6;">
+<p style="margin:5px 0;color:#666666;"><strong>Coach Ejecutivo Chilexpress</strong></p>
+<p style="margin:5px 0;color:#666666;">Este es un reporte automático generado por el sistema de análisis de ventas</p>
+<p style="margin:15px 0 5px 0;font-size:12px;color:#666666;">Para consultas o soporte, contacta al equipo de análisis</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+"""
         
         return html
