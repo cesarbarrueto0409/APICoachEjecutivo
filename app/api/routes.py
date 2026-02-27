@@ -224,8 +224,70 @@ async def analyze_data(
         analysis_result = result.get("analysis", {})
         analysis_text = analysis_result.get("analysis", "")
         
-        # Parse analysis result
-        parsed_analysis = json.loads(analysis_text) if analysis_text.strip().startswith(("{", "[")) else None
+        # Parse analysis result with error handling
+        parsed_analysis = None
+        if analysis_text.strip().startswith(("{", "[")):
+            try:
+                parsed_analysis = json.loads(analysis_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON parsing error: {e.msg} at position {e.pos}")
+                logger.info("Attempting to fix JSON...")
+                
+                # Attempt to fix common JSON issues
+                fixed_text = analysis_text
+                
+                # Fix 1: Remove text before first { or [
+                first_brace = fixed_text.find('{')
+                first_bracket = fixed_text.find('[')
+                if first_brace >= 0 and (first_bracket < 0 or first_brace < first_bracket):
+                    fixed_text = fixed_text[first_brace:]
+                elif first_bracket >= 0:
+                    fixed_text = fixed_text[first_bracket:]
+                
+                # Fix 2: Remove text after last } or ]
+                last_brace = fixed_text.rfind('}')
+                last_bracket = fixed_text.rfind(']')
+                if last_brace >= 0 and last_brace > last_bracket:
+                    fixed_text = fixed_text[:last_brace + 1]
+                elif last_bracket >= 0:
+                    fixed_text = fixed_text[:last_bracket + 1]
+                
+                # Try parsing fixed version
+                try:
+                    parsed_analysis = json.loads(fixed_text)
+                    logger.info("✅ JSON fixed successfully")
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Could not fix JSON: {e2.msg} at position {e2.pos}")
+                    # Save for debugging
+                    with open('/tmp/debug_invalid_json.txt', 'w', encoding='utf-8') as f:
+                        f.write(analysis_text)
+                    logger.error("Saved invalid JSON to /tmp/debug_invalid_json.txt")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"AI model returned invalid JSON: {e2.msg} at line {e2.lineno}, column {e2.colno}"
+                    )
+        
+        # Enrich parsed analysis with test_correo field from original data
+        if parsed_analysis and isinstance(parsed_analysis, dict):
+            ejecutivos_analysis = parsed_analysis.get("ejecutivos", [])
+            if ejecutivos_analysis:
+                # Get original data to extract test_correo
+                original_data = service._data_client.query(query_params)
+                
+                # Build mapping of rut_ejecutivo -> test_correo
+                test_correo_map = {}
+                for exec_data in original_data:
+                    rut = str(exec_data.get("rut_ejecutivo", ""))
+                    test_correo = exec_data.get("test_correo")
+                    if test_correo:
+                        test_correo_map[rut] = test_correo
+                
+                # Enrich each ejecutivo with test_correo
+                for ejecutivo in ejecutivos_analysis:
+                    rut = str(ejecutivo.get("rut_ejecutivo", ""))
+                    if rut in test_correo_map:
+                        ejecutivo["test_correo"] = test_correo_map[rut]
+                        logger.info(f"Added test_correo for ejecutivo {rut}")
         
         # Prepare base response
         response_data = {
@@ -249,7 +311,8 @@ async def analyze_data(
             # Send notifications
             notification_result = notification_service.send_analysis_notifications(
                 analysis_result={"data": parsed_analysis},
-                current_date=request.current_date
+                current_date=request.current_date,
+                is_testing=request.is_testing
             )
             
             response_data["email_notifications"] = notification_result
