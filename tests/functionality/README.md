@@ -74,6 +74,25 @@ Esta carpeta contiene tests funcionales que verifican la lógica de negocio y el
 - `test_mongodb_data_structure` - Estructura de datos en MongoDB
 - `test_sales_data_retrieval` - Recuperación de datos de ventas
 
+### `test_parallel_processing.py`
+**Función:** Tests del sistema de procesamiento en paralelo.
+
+**Tests incluidos:**
+- `test_batch_config_from_env` - Configuración desde variables de entorno
+- `test_batch_config_defaults` - Valores por defecto de configuración
+- `test_divide_76_executives_into_batches` - División de ejecutivos en lotes
+- `test_parallel_processing_integrity` - Integridad de datos en paralelo
+- `test_parallel_speedup` - Verificación de mejora de performance
+- `test_test_correo_field_preserved` - Preservación de campo test_correo
+- `test_testing_mode_filters_correctly` - Filtrado correcto en modo testing
+
+**Categorías de tests:**
+- Configuración de lotes (BatchConfig)
+- División de ejecutivos (batch division)
+- Procesamiento paralelo (parallel execution)
+- Manejo de errores (error handling)
+- Modo testing de correos (email testing mode)
+
 ### `test_settings.py`
 **Función:** Tests de configuración de la aplicación.
 

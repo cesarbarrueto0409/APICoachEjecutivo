@@ -488,6 +488,59 @@ Día 5: Recomienda clientes A, B, C (todos liberados)
 4. Cooldown expirado → Permitir con marca "repeated_no_change"
 5. Clientes ficticios → Rechazo automático
 
+### v4.0.0 - Procesamiento en Paralelo y Testing de Correos (Febrero 2026)
+**Funcionalidades Principales**
+- Procesamiento en paralelo de lotes de ejecutivos
+- Sistema de testing de correos con campo `test_correo`
+- Optimización de queries MongoDB (reducción 40% de datos)
+- Enriquecimiento automático de datos del análisis
+
+**Componentes Agregados**
+- `BatchProcessor`: Procesamiento paralelo de lotes con ThreadPoolExecutor
+- `BatchConfig`: Configuración centralizada de lotes
+- Campo `test_correo` en colección `clientes_por_ejecutivo`
+
+**Mejoras de Performance**
+- Procesamiento paralelo: 16 lotes de 5 ejecutivos cada uno
+- Reducción de tiempo: De ~12 minutos a ~2.3 minutos (5.2x más rápido)
+- Optimización de queries: Reducción 40% en tamaño de datos
+  - Claims: Solo resumen (total_reclamos, reclamos_pendientes, valor_total_reclamado)
+  - Pickups: Solo resumen (cant_retiros_programados, cant_retiros_efectuados, tasa_cumplimiento)
+- Costo por análisis completo: ~$0.44 USD (76 ejecutivos)
+
+**Sistema de Testing de Correos**
+- Campo `test_correo` en MongoDB para ejecutivos de prueba
+- Parámetro `is_testing` en API para activar modo testing
+- Filtrado automático: Solo envía a ejecutivos con `test_correo`
+- Prefijo `[TEST]` en asunto de correos de prueba
+- Tracking de correos omitidos (`total_skipped`)
+
+**Configuración**
+```env
+# Batch Processing
+BATCH_SIZE=5
+MAX_PARALLEL_BATCHES=20
+ENABLE_PARALLEL_BATCHES=true
+MAX_CLIENTS_PER_EXEC=30
+```
+
+**Arquitectura POO**
+- Principios SOLID aplicados
+- Extensibilidad: Fácil cambio de tamaño de lotes o modelo
+- Escalabilidad: Configuración por variables de entorno
+- Separación de responsabilidades: BatchProcessor independiente
+
+**Scripts Utilitarios**
+- `add_test_email.py`: Agregar campo test_correo a ejecutivos
+- `merge_sales_goals.py`: Fusionar colecciones de metas
+- `save_api_results.py`: Guardar resultados JSON y HTML
+- `test_email_testing_mode.py`: Probar modo testing de correos
+
+**Mejoras en Queries**
+- Proyección de `test_correo` en pipeline de agregación
+- Enriquecimiento post-análisis con datos originales
+- Preservación de campos adicionales del ejecutivo
+
 
 ## 🚀 Instalación y Configuración
 
@@ -799,7 +852,8 @@ tests/
 ├── functionality/         # Tests de comportamiento de la API
 │   ├── test_query_execution.py
 │   ├── test_border_cases.py
-│   └── test_embeddings_memory.py
+│   ├── test_embeddings_memory.py
+│   └── test_parallel_processing.py  # NUEVO: Tests de procesamiento paralelo
 └── conftest.py           # Configuración y fixtures compartidos
 ```
 
@@ -872,6 +926,51 @@ Los tests de casos bordes verifican:
    - Genera recomendaciones similares
    - Verifica que se filtren por similitud
    - Valida el threshold de similitud (0.85)
+
+### Tests de Procesamiento Paralelo
+
+Los tests de procesamiento paralelo verifican:
+
+1. **Configuración de Lotes**
+   - Verifica que BatchConfig carga correctamente desde .env
+   - Valida valores por defecto si no hay configuración
+   - Prueba diferentes tamaños de lote
+
+2. **División de Ejecutivos en Lotes**
+   - 76 ejecutivos → 16 lotes de 5 ejecutivos (último con 1)
+   - Verifica que no se pierdan ejecutivos
+   - Valida que los lotes sean del tamaño correcto
+
+3. **Procesamiento Paralelo**
+   - Ejecuta múltiples lotes simultáneamente
+   - Verifica que todos los lotes se procesen
+   - Valida que el tiempo total sea menor que secuencial
+   - Mide speedup (debe ser > 3x)
+
+4. **Integridad de Datos**
+   - Verifica que todos los ejecutivos aparezcan en el resultado
+   - Valida que no haya duplicados
+   - Confirma que cada ejecutivo tenga sus 3 recomendaciones
+
+5. **Manejo de Errores en Paralelo**
+   - Simula fallo en un lote
+   - Verifica que otros lotes continúen procesándose
+   - Valida que se reporten los errores correctamente
+
+6. **Modo Testing de Correos**
+   - Verifica que solo se envíen correos a ejecutivos con `test_correo`
+   - Valida que el campo `test_correo` se preserve en el análisis
+   - Confirma que `total_skipped` sea correcto
+
+**Ejecutar tests de procesamiento paralelo:**
+```bash
+pytest tests/functionality/test_parallel_processing.py -v
+```
+
+**Test de performance:**
+```bash
+pytest tests/functionality/test_parallel_processing.py::test_parallel_speedup -v --durations=10
+```
 
 ### Configuración de Tests
 

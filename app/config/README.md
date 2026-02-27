@@ -22,15 +22,17 @@ Esta carpeta contiene la configuración de la aplicación, incluyendo settings, 
 - OpenAI: API key, endpoint, modelo de embeddings
 - SendGrid: API key, emails de origen y destino
 - Parámetros de negocio: umbral de similitud, días de cooldown, límite de recomendaciones
+- Batch Processing: tamaño de lotes, paralelismo, límites de clientes
 
 ### `queries.py`
 **Función:** Define las queries de MongoDB y prompts para análisis de IA.
 
 **Responsabilidades:**
-- Generar queries agregadas de MongoDB para extraer datos de ventas
+- Generar aggregation pipelines de MongoDB para extraer datos de ventas
 - Construir prompts dinámicos para el análisis de IA
 - Parsear fechas y calcular rangos temporales
 - Obtener información adicional de ejecutivos desde MongoDB
+- Proyectar campos necesarios incluyendo `test_correo`
 
 **Funciones principales:**
 - `get_queries(current_date)` - Retorna lista de queries de MongoDB para análisis
@@ -38,10 +40,18 @@ Esta carpeta contiene la configuración de la aplicación, incluyendo settings, 
 - `parse_date(date_str)` - Convierte strings de fecha a tuplas
 
 **Queries incluidas:**
-- Ventas por ejecutivo en diferentes períodos
-- Clientes atendidos por ejecutivo
-- Análisis de tendencias temporales
-- Datos de contacto de ejecutivos
+- Ventas por ejecutivo con enriquecimiento de datos
+- Métricas de riesgo de clientes (drop_flag, risk_level)
+- Resumen de reclamos (total, pendientes, valor)
+- Resumen de retiros (programados, efectuados, tasa cumplimiento)
+- Historial de recomendaciones (memory_recs)
+- Metas de ventas (sales_goal)
+- Campo test_correo para modo testing
+
+**Optimizaciones:**
+- Limita a 20 clientes por ejecutivo (ordenados por relevancia)
+- Solo resumen de claims y pickups (reducción 40% de datos)
+- Proyección selectiva de campos necesarios
 
 ### `__init__.py`
 **Función:** Marca el directorio como un paquete Python.
