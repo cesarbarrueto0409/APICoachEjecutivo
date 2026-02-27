@@ -1,8 +1,10 @@
 """Analysis service for orchestrating data retrieval and AI analysis."""
 
 import logging
+import asyncio
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from app.clients.interfaces import IDataClient, IAIClient
+from app.services.batch_processor import BatchProcessor, BatchConfig
 
 if TYPE_CHECKING:
     from app.clients.interfaces import IEmbeddingClient
@@ -32,7 +34,8 @@ class AnalysisService:
         embedding_client: Optional["IEmbeddingClient"] = None,
         memory_store: Optional["RecommendationMemoryStore"] = None,
         similarity_service: Optional["SimilarityService"] = None,
-        memory_enabled: bool = True
+        memory_enabled: bool = True,
+        batch_config: Optional[BatchConfig] = None
     ):
         if data_client is None:
             raise ValueError("data_client cannot be None")
@@ -50,18 +53,38 @@ class AnalysisService:
             embedding_client, memory_store, similarity_service
         ])
         
+        # Batch processing configuration
+        self._batch_processor = BatchProcessor(batch_config or BatchConfig())
+        
         if self._memory_enabled:
             logger.info("AnalysisService initialized with memory system enabled")
         else:
             logger.info("AnalysisService initialized without memory system (backward compatibility mode)")
+        
+        logger.info(
+            f"Batch processing configured: size={self._batch_processor._config.batch_size}, "
+            f"parallel={self._batch_processor._config.enable_parallel}"
+        )
     
     def execute_analysis(
         self,
         query_params: Dict[str, Any],
         analysis_prompt: Optional[str] = None,
-        current_date: Optional[str] = None
+        current_date: Optional[str] = None,
+        use_batch_processing: bool = False
     ) -> Dict[str, Any]:
-        """Execute complete analysis workflow."""
+        """
+        Execute complete analysis workflow.
+        
+        Args:
+            query_params: MongoDB query parameters
+            analysis_prompt: Optional custom prompt
+            current_date: Optional current date for context
+            use_batch_processing: If True, use batch processing for large datasets
+            
+        Returns:
+            Analysis results
+        """
         if not isinstance(query_params, dict):
             raise ValueError("query_params must be a dictionary")
         
@@ -107,8 +130,16 @@ class AnalysisService:
             date_context = f"Current date for analysis context: {current_date}. "
             enhanced_prompt = date_context + (analysis_prompt or "Analyze the provided data.")
         
-        # AI analysis
-        ai_result = self._ai_client.analyze(data, prompt=enhanced_prompt)
+        # Decide whether to use batch processing
+        # Use batch processing if explicitly requested OR if data is large
+        should_use_batches = use_batch_processing or data_count > 10
+        
+        if should_use_batches:
+            logger.info(f"Using batch processing for {data_count} executives")
+            ai_result = self._execute_analysis_with_batches(data, enhanced_prompt)
+        else:
+            logger.info(f"Using single-batch processing for {data_count} executives")
+            ai_result = self._ai_client.analyze(data, prompt=enhanced_prompt)
         
         # Validate AI response
         if ai_result is None:
@@ -123,6 +154,89 @@ class AnalysisService:
             "analysis": ai_result,
             "query_params": query_params
         }
+    
+    async def _execute_analysis_with_batches_async(
+        self,
+        data: List[Dict[str, Any]],
+        prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute analysis using batch processing (async version).
+        
+        Args:
+            data: List of executive data
+            prompt: Analysis prompt
+            
+        Returns:
+            Consolidated analysis results
+        """
+        # Divide into batches
+        batches = self._batch_processor.divide_into_batches(data)
+        
+        # Process batches asynchronously
+        results = await self._batch_processor.process_batches_async(
+            batches,
+            self._ai_client.analyze_batch,
+            prompt
+        )
+        
+        # Consolidate results
+        consolidated = self._batch_processor.consolidate_results(results)
+        
+        # Check for failures
+        if consolidated["metadata"]["failed_batches"] > 0:
+            logger.warning(
+                f"Batch processing completed with {consolidated['metadata']['failed_batches']} failures"
+            )
+        
+        # Format as standard analysis result
+        ejecutivos = consolidated["data"]
+        
+        # Create analysis JSON
+        import json
+        analysis_json = {
+            "fecha_analisis": prompt.split("Fecha de corte: ")[1].split("\n")[0] if "Fecha de corte:" in prompt else "N/A",
+            "ejecutivos": ejecutivos
+        }
+        
+        return {
+            "analysis": json.dumps(analysis_json, ensure_ascii=False),
+            "confidence": None,
+            "metadata": {
+                "model": "batch_processed",
+                "batch_metadata": consolidated["metadata"]
+            }
+        }
+    
+    def _execute_analysis_with_batches(
+        self,
+        data: List[Dict[str, Any]],
+        prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute analysis using batch processing (sync wrapper).
+        
+        Args:
+            data: List of executive data
+            prompt: Analysis prompt
+            
+        Returns:
+            Consolidated analysis results
+        """
+        # Try to get existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're already in an async context, we can't use run_until_complete
+            # Instead, we need to create a task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    lambda: asyncio.run(self._execute_analysis_with_batches_async(data, prompt))
+                )
+                return future.result()
+        except RuntimeError:
+            # No event loop running, safe to create one
+            return asyncio.run(self._execute_analysis_with_batches_async(data, prompt))
     
     def execute_analysis_with_memory(
         self,
