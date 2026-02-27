@@ -2,10 +2,13 @@
 
 import os
 import re
+import logging
 from typing import List, Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 from app.clients.interfaces import IAIClient
+
+logger = logging.getLogger(__name__)
 
 
 class AWSBedrockClient(IAIClient):
@@ -53,10 +56,20 @@ class AWSBedrockClient(IAIClient):
     
     def connect(self) -> None:
         """Establish connection to AWS Bedrock service."""
+        from botocore.config import Config
+        
+        # Configure with extended timeout for large requests
+        config = Config(
+            read_timeout=600,  # 10 minutes
+            connect_timeout=60,
+            retries={'max_attempts': 3}
+        )
+        
         # boto3 will automatically use AWS_BEARER_TOKEN_BEDROCK from environment
         self._client = boto3.client(
             service_name="bedrock-runtime",
-            region_name=self._region
+            region_name=self._region,
+            config=config
         )
     
     def analyze(self, data: List[Dict[str, Any]], prompt: Optional[str] = None) -> Dict[str, Any]:
@@ -68,6 +81,50 @@ class AWSBedrockClient(IAIClient):
         response = self._invoke_model(messages)
         return self._parse_response(response)
     
+    def analyze_batch(
+        self,
+        batch_data: List[Dict[str, Any]],
+        batch_num: int,
+        prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze a single batch of data.
+        
+        This method is designed to be called by BatchProcessor for parallel processing.
+        
+        Args:
+            batch_data: List of executive data for this batch
+            batch_num: Batch number (for logging)
+            prompt: Optional analysis prompt
+            
+        Returns:
+            Dictionary with parsed analysis results
+        """
+        import json
+        
+        logger.info(f"[Batch {batch_num}] Analyzing {len(batch_data)} executives...")
+        
+        # Perform analysis
+        result = self.analyze(batch_data, prompt)
+        
+        # Parse the analysis JSON
+        analysis_text = result.get("analysis", "")
+        
+        try:
+            analysis_json = json.loads(analysis_text)
+            ejecutivos = analysis_json.get("ejecutivos", [])
+            
+            logger.info(
+                f"[Batch {batch_num}] Successfully analyzed {len(ejecutivos)} executives"
+            )
+            
+            # Return ejecutivos list (will be consolidated by BatchProcessor)
+            return ejecutivos
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[Batch {batch_num}] JSON parsing error: {e.msg}")
+            raise RuntimeError(f"Failed to parse analysis JSON: {e.msg}")
+    
     def _format_request(self, data: List[Dict[str, Any]], prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """Format data and prompt for AWS Bedrock API."""
         import json
@@ -78,6 +135,36 @@ class AWSBedrockClient(IAIClient):
         # Optimize data to reduce token count
         optimized_data = self._optimize_data_for_tokens(data, max_clients_per_exec=self._max_clients_per_exec)
         
+        # Add field mapping explanation for abbreviated fields
+        field_mapping = """
+NOTA: Los datos están optimizados con campos abreviados para reducir tokens:
+- rut: RUT del cliente
+- nom: Nombre del cliente (truncado a 30 chars)
+- vta: Ventas del mes
+- m: Métricas del cliente
+  - risk: Nivel de riesgo (red/yellow/green)
+  - drop: Flag de riesgo de pérdida (1=sí, 0=no)
+  - act: Cliente activo (true/false)
+  - attn: Necesita atención (true/false)
+  - hv: Alto valor (true/false)
+  - avg: Promedio histórico de ventas
+  - l3: Promedio últimos 3 meses
+  - p3: Promedio 3 meses anteriores
+  - p25: Percentil 25
+  - cb25: Meses consecutivos bajo p25
+- clm: Reclamos
+  - tot: Total de reclamos
+  - r: Lista de reclamos (solo el más reciente)
+- pck: Retiros/pickups
+  - prg: Retiros programados
+  - efe: Retiros efectuados
+- mem: Recomendaciones previas (últimas 2)
+  - r: Texto de recomendación (truncado a 80 chars)
+  - t: Fecha (YYYY-MM-DD)
+- cart: Cartera de clientes (limitada a 10 más críticos)
+
+"""
+        
         # Use JSON format for better token efficiency
         data_str = json.dumps(optimized_data, ensure_ascii=False, separators=(',', ':'))
         
@@ -85,7 +172,7 @@ class AWSBedrockClient(IAIClient):
         messages = [
             {
                 "role": "user",
-                "content": [{"text": f"{analysis_prompt}\n\nData:\n{data_str}"}]
+                "content": [{"text": f"{field_mapping}\n{analysis_prompt}\n\nData:\n{data_str}"}]
             }
         ]
         
@@ -203,9 +290,8 @@ class AWSBedrockClient(IAIClient):
             optimized_item = {}
             
             # Copy basic fields
-            for key in ['id_ejecutivo', 'nombre_ejecutivo', 'correo', 'agno', 'mes', 
-                       'ventas_total_mes', 'goal_mes', 'goal_year', 'avance_pct', 
-                       'faltante', 'n_clientes', 'clientes_con_ventas']:
+            for key in ['rut_ejecutivo', 'nombre_ejecutivo', 'correo', 
+                       'ventas_total_mes', 'goal_mes', 'avance_pct', 'faltante']:
                 if key in item:
                     optimized_item[key] = item[key]
             
@@ -262,7 +348,7 @@ class AWSBedrockClient(IAIClient):
                     
                     return score
                 
-                # Sort clients by priority and limit
+                # Sort clients by priority and limit to max_clients_per_exec
                 sorted_cartera = sorted(cartera, key=client_priority, reverse=True)
                 limited_cartera = sorted_cartera[:max_clients_per_exec]
                 
@@ -281,7 +367,6 @@ class AWSBedrockClient(IAIClient):
                         optimized_cliente['metrics'] = {
                             'drop_flag': cm.get('drop_flag'),
                             'risk_level': cm.get('risk_level'),
-                            'risk_score': cm.get('risk_score'),
                             'is_active': cm.get('is_active'),
                             'needs_attention': cm.get('needs_attention'),
                             'is_high_value': cm.get('is_high_value'),
@@ -289,70 +374,46 @@ class AWSBedrockClient(IAIClient):
                             'avg_last3': cm.get('avg_last3'),
                             'avg_prev3': cm.get('avg_prev3'),
                             'p25': cm.get('p25'),
-                            'p50': cm.get('p50'),
                             'consec_below_p25': cm.get('consec_below_p25')
                         }
                     
-                    # Include claims summary (not full details)
+                    # Include claims summary (solo números)
                     if 'claims' in cliente and cliente['claims']:
                         claims = cliente['claims']
-                        total_reclamos = claims.get('total_reclamos', 0)
-                        
-                        if total_reclamos > 0:
-                            # Only include essential claim info, limit to 3 most recent
-                            reclamos_list = claims.get('reclamos', [])[:3]
-                            optimized_cliente['claims'] = {
-                                'total': total_reclamos,
-                                'reclamos': [
-                                    {
-                                        'caso': r.get('numero_caso'),
-                                        'motivo': r.get('motivo'),
-                                        'estado': r.get('estado'),
-                                        'valor': r.get('valor_reclamado')
-                                    }
-                                    for r in reclamos_list
-                                ]
-                            }
+                        optimized_cliente['claims'] = {
+                            'total': claims.get('total_reclamos', 0),
+                            'pendientes': claims.get('reclamos_pendientes', 0),
+                            'valor_total': claims.get('valor_total_reclamado', 0)
+                        }
                     
-                    # Include pickup summary (not full details)
+                    # Include pickup summary (solo números)
                     if 'pickups' in cliente and cliente['pickups']:
                         pickups = cliente['pickups']
                         optimized_cliente['pickups'] = {
                             'programados': pickups.get('cant_retiros_programados', 0),
-                            'efectuados': pickups.get('cant_retiros_efectuados', 0)
+                            'efectuados': pickups.get('cant_retiros_efectuados', 0),
+                            'tasa': pickups.get('tasa_cumplimiento')
                         }
                     
-                    # Include previous recommendation (summary only)
-                    if 'recommendation' in cliente and cliente['recommendation']:
-                        rec = cliente['recommendation']
-                        if 'bedrock_recommendation' in rec:
-                            # Truncate recommendation to first 200 chars
-                            rec_text = str(rec.get('bedrock_recommendation', ''))[:200]
-                            optimized_cliente['prev_rec'] = rec_text
-                    
-                    # Include memory_recs (last 3 recommendations from memory system)
+                    # Include memory_recs (last 2 recommendations)
                     if 'memory_recs' in cliente and cliente['memory_recs']:
                         memory_recs = cliente['memory_recs']
-                        # Include last 3 recommendations with timestamp
                         optimized_cliente['memory_recs'] = [
                             {
-                                'rec': rec.get('recommendation', '')[:150],  # Truncar a 150 chars
-                                'timestamp': rec.get('timestamp', '')[:10]  # Solo fecha YYYY-MM-DD
+                                'rec': rec.get('recommendation', '')[:100],
+                                'timestamp': rec.get('timestamp', '')[:10]
                             }
-                            for rec in memory_recs[:3]
+                            for rec in memory_recs[:2]
                         ]
                     
                     optimized_cartera.append(optimized_cliente)
-                
-                # Add note if clients were limited
-                if len(cartera) > max_clients_per_exec:
-                    optimized_item['_note'] = f"Showing top {max_clients_per_exec} priority clients of {len(cartera)} total"
                 
                 optimized_item['cartera_detallada'] = optimized_cartera
             
             optimized.append(optimized_item)
         
         return optimized
+    
     def prefilter_clients_by_memory(self, data: List[Dict[str, Any]], days_threshold: int = 1) -> List[Dict[str, Any]]:
         """Pre-filter clients that were recommended recently to ensure diversity.
 
@@ -426,7 +487,19 @@ class AWSBedrockClient(IAIClient):
     def _invoke_model(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Invoke AWS Bedrock model using converse API."""
         system_prompt = """You are a data analysis assistant. Provide thorough, complete responses 
-        and analyze the data comprehensively."""
+        and analyze the data comprehensively.
+
+CRITICAL: Your response MUST be valid JSON. Follow these rules strictly:
+1. All string values must have properly escaped quotes: use \\" for quotes inside strings
+2. All string values must be properly terminated with closing quotes
+3. Do not include line breaks inside string values - use \\n instead
+4. Ensure all brackets and braces are properly closed
+5. Return ONLY the JSON object, no additional text before or after"""
+        
+        # Determine max tokens based on model
+        # Nova Pro supports up to 300K input tokens and 5K output tokens
+        # Nova Lite supports up to 300K input tokens and 5K output tokens
+        max_output_tokens = 5000 if "nova-pro" in self._model_id else 4096
         
         try:
             response = self._client.converse(
@@ -434,13 +507,28 @@ class AWSBedrockClient(IAIClient):
                 messages=messages,
                 system=[{"text": system_prompt}],
                 inferenceConfig={
-                    "maxTokens": 4096,  # Increased from 3000
+                    "maxTokens": max_output_tokens,
                     "temperature": 0.2
                 }
             )
             return response
         except ClientError as e:
             error_msg = e.response.get('Error', {}).get('Message', str(e))
+            
+            # Check if it's an input token limit error
+            if "Input Tokens Exceeded" in error_msg or "input tokens exceeds" in error_msg.lower():
+                # Try to estimate input size and suggest batch processing
+                import json
+                data_str = messages[0]["content"][0]["text"]
+                estimated_tokens = len(data_str) // 4  # Rough estimate: 1 token ≈ 4 chars
+                
+                raise RuntimeError(
+                    f"AWS Bedrock input token limit exceeded. "
+                    f"Estimated input tokens: ~{estimated_tokens:,}. "
+                    f"Model '{self._model_id}' supports up to 300K input tokens. "
+                    f"Consider enabling batch processing or reducing data size."
+                ) from e
+            
             raise RuntimeError(
                 f"AWS Bedrock Converse failed for model '{self._model_id}': {error_msg}"
             ) from e
@@ -452,6 +540,9 @@ class AWSBedrockClient(IAIClient):
         
         # Clean markdown code blocks from JSON responses
         analysis_text = self._clean_markdown_json(analysis_text)
+        
+        # Validate and fix JSON
+        analysis_text = self._validate_and_fix_json(analysis_text)
         
         # Extract metadata
         metadata = {
@@ -483,6 +574,60 @@ class AWSBedrockClient(IAIClient):
             "confidence": None,
             "metadata": metadata
         }
+    
+    def _validate_and_fix_json(self, text: str) -> str:
+        """Validate JSON and attempt to fix common issues."""
+        import json
+        
+        # Try to parse as-is first
+        try:
+            json.loads(text)
+            return text  # Valid JSON, return as-is
+        except json.JSONDecodeError as e:
+            print(f"Warning: JSON parsing error at position {e.pos}: {e.msg}")
+            print(f"Attempting to fix JSON...")
+            
+            # Common fixes
+            fixed_text = text
+            
+            # Fix 1: Remove any text before first { or [
+            first_brace = fixed_text.find('{')
+            first_bracket = fixed_text.find('[')
+            if first_brace >= 0 and (first_bracket < 0 or first_brace < first_bracket):
+                fixed_text = fixed_text[first_brace:]
+            elif first_bracket >= 0:
+                fixed_text = fixed_text[first_bracket:]
+            
+            # Fix 2: Remove any text after last } or ]
+            last_brace = fixed_text.rfind('}')
+            last_bracket = fixed_text.rfind(']')
+            if last_brace >= 0 and last_brace > last_bracket:
+                fixed_text = fixed_text[:last_brace + 1]
+            elif last_bracket >= 0:
+                fixed_text = fixed_text[:last_bracket + 1]
+            
+            # Fix 3: Replace unescaped newlines in strings
+            # This is tricky - we need to find strings and escape newlines within them
+            # For now, replace literal \n with escaped version
+            fixed_text = fixed_text.replace('\n', '\\n')
+            fixed_text = fixed_text.replace('\r', '\\r')
+            fixed_text = fixed_text.replace('\t', '\\t')
+            
+            # Try parsing again
+            try:
+                json.loads(fixed_text)
+                print("✅ JSON fixed successfully")
+                return fixed_text
+            except json.JSONDecodeError as e2:
+                print(f"❌ Could not fix JSON: {e2.msg} at position {e2.pos}")
+                
+                # Save problematic JSON for debugging
+                with open('debug_invalid_json.txt', 'w', encoding='utf-8') as f:
+                    f.write(text)
+                print("Saved invalid JSON to debug_invalid_json.txt")
+                
+                # Return original text and let caller handle the error
+                return text
     
     def _clean_markdown_json(self, text: str) -> str:
         """Remove markdown code block formatting from JSON responses."""

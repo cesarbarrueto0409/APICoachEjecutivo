@@ -82,6 +82,7 @@ Esta carpeta contiene la lógica de negocio de la aplicación, orquestando clien
 **Responsabilidades:**
 - Formatear recomendaciones en HTML para emails
 - Enviar emails a ejecutivos con sus recomendaciones
+- Manejar modo testing (envío solo a test_correo)
 - Manejar errores de envío de emails
 - Generar contenido HTML atractivo y legible
 
@@ -90,9 +91,42 @@ Esta carpeta contiene la lógica de negocio de la aplicación, orquestando clien
 
 **Formato de email:**
 - Saludo personalizado
-- Lista de clientes recomendados
+- Métricas visuales (progress bars, badges)
+- Lista de clientes recomendados con prioridad
 - Razones de cada recomendación
-- Formato HTML con estilos
+- Alertas destacadas
+- Formato HTML con estilos inline (email-safe)
+
+**Modo Testing:**
+- Parámetro `is_testing` para activar modo prueba
+- Solo envía a ejecutivos con campo `test_correo`
+- Agrega prefijo `[TEST]` al asunto
+- Tracking de correos omitidos (`total_skipped`)
+
+### `batch_processor.py`
+**Función:** Procesa ejecutivos en lotes paralelos para mejorar performance.
+
+**Responsabilidades:**
+- Dividir ejecutivos en lotes configurables
+- Procesar lotes en paralelo usando ThreadPoolExecutor
+- Consolidar resultados de múltiples lotes
+- Manejar errores por lote sin afectar otros
+- Optimizar uso de recursos y tiempo de procesamiento
+
+**Clases principales:**
+- `BatchConfig` - Configuración de lotes (tamaño, paralelismo)
+- `BatchProcessor` - Procesador de lotes en paralelo
+
+**Configuración (variables de entorno):**
+- `BATCH_SIZE` - Ejecutivos por lote (default: 5)
+- `MAX_PARALLEL_BATCHES` - Lotes simultáneos (default: 20)
+- `ENABLE_PARALLEL_BATCHES` - Activar/desactivar paralelismo (default: true)
+- `MAX_CLIENTS_PER_EXEC` - Clientes máximos por ejecutivo (default: 30)
+
+**Performance:**
+- Procesamiento paralelo: ~5.2x más rápido que secuencial
+- 76 ejecutivos: De ~12 minutos a ~2.3 minutos
+- Configuración óptima: 16 lotes de 5 ejecutivos
 
 ### `__init__.py`
 **Función:** Marca el directorio como un paquete Python.
@@ -107,35 +141,30 @@ Esta carpeta contiene la lógica de negocio de la aplicación, orquestando clien
         │
         │ coordina
         │
-        ├──────────────┬──────────────┬──────────────┬─────────────┐
-        │              │              │              │             │
-        ▼              ▼              ▼              ▼             ▼
-┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────┐
-│ MongoDB      │ │ AWS      │ │similarity│ │recommendation│ │ memory_ │
-│ Client       │ │ Bedrock  │ │_service  │ │_memory_store │ │ reset_  │
-│              │ │ Client   │ │          │ │              │ │ service │
-└──────────────┘ └──────────┘ └──────────┘ └──────────────┘ └─────────┘
-        │              │              │              │             │
-        │              │              │              │             │
-        ▼              ▼              ▼              ▼             ▼
-┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────┐
-│ Datos de     │ │ Análisis │ │ Filtrado │ │ Historial de │ │ Limpieza│
-│ Ventas       │ │ con IA   │ │ por      │ │ Recomenda-   │ │ Periódica│
-└──────────────┘ └──────────┘ │ Similitud│ │ ciones       │ └─────────┘
-                               └──────────┘ └──────────────┘
-                                      │              │
-                                      └──────┬───────┘
-                                             ▼
-                                  ┌────────────────────┐
-                                  │ email_notification_│
-                                  │ service.py         │
-                                  └─────────┬──────────┘
-                                            │
-                                            ▼
-                                  ┌────────────────────┐
-                                  │ Emails enviados    │
-                                  │ a ejecutivos       │
-                                  └────────────────────┘
+        ├──────────────┬──────────────┬──────────────┬─────────────┬──────────────┐
+        │              │              │              │             │              │
+        ▼              ▼              ▼              ▼             ▼              ▼
+┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────┐ ┌──────────┐
+│ MongoDB      │ │ batch_   │ │similarity│ │recommendation│ │ memory_ │ │ email_   │
+│ Client       │ │ processor│ │_service  │ │_memory_store │ │ reset_  │ │notification│
+│              │ │          │ │          │ │              │ │ service │ │_service  │
+└──────────────┘ └────┬─────┘ └──────────┘ └──────────────┘ └─────────┘ └──────────┘
+        │              │              │              │             │             │
+        │              │              │              │             │             │
+        │              ▼              │              │             │             │
+        │       ┌──────────┐          │              │             │             │
+        │       │ AWS      │          │              │             │             │
+        │       │ Bedrock  │          │              │             │             │
+        │       │ Client   │          │              │             │             │
+        │       │(parallel)│          │              │             │             │
+        │       └──────────┘          │              │             │             │
+        │              │              │              │             │             │
+        ▼              ▼              ▼              ▼             ▼             ▼
+┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌─────────┐ ┌──────────┐
+│ Datos de     │ │ Análisis │ │ Filtrado │ │ Historial de │ │ Limpieza│ │ Emails   │
+│ Ventas       │ │ con IA   │ │ por      │ │ Recomenda-   │ │ Periódica│ │ enviados │
+│              │ │(en lotes)│ │ Similitud│ │ ciones       │ │         │ │          │
+└──────────────┘ └──────────┘ └──────────┘ └──────────────┘ └─────────┘ └──────────┘
 ```
 
 ## Flujo Completo del Sistema
@@ -149,11 +178,14 @@ Esta carpeta contiene la lógica de negocio de la aplicación, orquestando clien
 3. Ejecutar queries MongoDB   │
    (mongodb_client)           │
                               ▼
-4. Enviar datos a IA          │
-   (aws_bedrock_client)       │
+4. Dividir en lotes           │
+   (batch_processor)          │
                               ▼
-5. Parsear recomendaciones    │
-   de la IA                   │
+5. Procesar lotes en paralelo │
+   a. Enviar lote a IA        │
+      (aws_bedrock_client)    │
+   b. Parsear recomendaciones │
+   c. Consolidar resultados   │
                               ▼
 6. Para cada recomendación:   │
    a. Generar embedding       │
@@ -166,11 +198,17 @@ Esta carpeta contiene la lógica de negocio de la aplicación, orquestando clien
    (recommendation_memory_    │
     store)                    │
                               ▼
-8. Enviar emails              │
+8. Enriquecer con test_correo │
+   (desde datos originales)   │
+                              ▼
+9. Enviar emails              │
    (email_notification_       │
     service)                  │
+   - Modo testing: solo       │
+     test_correo              │
+   - Producción: todos        │
                               ▼
-9. Retornar resultado a API
+10. Retornar resultado a API
 ```
 
 ## Patrones de Diseño

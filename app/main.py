@@ -47,6 +47,7 @@ from app.clients.embedding_client import EmbeddingClient
 from app.services.analysis_service import AnalysisService
 from app.services.recommendation_memory_store import RecommendationMemoryStore
 from app.services.similarity_service import SimilarityService
+from app.services.batch_processor import BatchConfig
 from app.api.routes import router, set_analysis_service, set_settings
 
 # Configure logging with timestamp, logger name, level, and message
@@ -202,13 +203,27 @@ def setup_dependencies(app: FastAPI, settings: Settings) -> None:
         logger.info("Memory system disabled by configuration")
     
     # Initialize analysis service with all dependencies
+    # Configure batch processing for scalability
+    batch_config = BatchConfig(
+        batch_size=int(os.getenv("BATCH_SIZE", "5")),  # Executives per batch
+        max_parallel_batches=int(os.getenv("MAX_PARALLEL_BATCHES", "20")),  # Respect rate limits
+        enable_parallel=os.getenv("ENABLE_PARALLEL_BATCHES", "true").lower() == "true"
+    )
+    
+    logger.info(
+        f"Batch processing configured: size={batch_config.batch_size}, "
+        f"max_parallel={batch_config.max_parallel_batches}, "
+        f"parallel_enabled={batch_config.enable_parallel}"
+    )
+    
     analysis_service = AnalysisService(
         data_client=_mongodb_client,
         ai_client=_aws_bedrock_client,
         embedding_client=embedding_client,
         memory_store=memory_store,
         similarity_service=similarity_service,
-        memory_enabled=settings.memory_enabled
+        memory_enabled=settings.memory_enabled,
+        batch_config=batch_config
     )
     
     # Configure dependency injection for API routes

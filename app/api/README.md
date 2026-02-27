@@ -14,12 +14,16 @@ Esta carpeta contiene la capa de presentación de la aplicación, manejando las 
 - Maneja errores y retorna respuestas HTTP apropiadas
 
 **Endpoints principales:**
-- `POST /analyze` - Ejecuta análisis de datos y envía notificaciones
-- `GET /health` - Verifica estado general de la API
-- `GET /health/mongodb` - Verifica conexión con MongoDB
-- `GET /health/bedrock` - Verifica conexión con AWS Bedrock
-- `GET /health/sendgrid` - Verifica configuración de SendGrid
-- `GET /health/embedding` - Verifica servicio de embeddings
+- `POST /api/analyze` - Ejecuta análisis de datos y envía notificaciones
+  - Parámetros: `current_date` (string), `is_testing` (boolean)
+  - Modo testing: Solo envía correos a ejecutivos con campo `test_correo`
+  - Enriquecimiento automático: Agrega `test_correo` desde datos originales
+- `GET /api/health` - Verifica estado general de la API
+- `GET /api/health/mongodb` - Verifica conexión con MongoDB
+- `GET /api/health/bedrock` - Verifica conexión con AWS Bedrock
+- `GET /api/health/sendgrid` - Verifica configuración de SendGrid
+- `GET /api/health/sendgrid/test` - Prueba envío real de email
+- `GET /api/health/embedding` - Verifica servicio de embeddings
 
 ### `schemas.py`
 **Función:** Define los modelos de datos (schemas) usando Pydantic para validación de requests y responses.
@@ -31,7 +35,10 @@ Esta carpeta contiene la capa de presentación de la aplicación, manejando las 
 
 **Schemas principales:**
 - `AnalysisRequest` - Estructura de datos para solicitudes de análisis
-- `EmailNotification` - Configuración de notificaciones por email
+  - `current_date` (string, required): Fecha de análisis en formato YYYY-MM-DD
+  - `is_testing` (boolean, optional): Modo testing para correos (default: false)
+- `EmailNotification` - Resultado de envío de email individual
+  - Incluye: ejecutivo, recipient, test_correo, status, error
 - `Config` - Configuración anidada dentro de AnalysisRequest
 
 ### `__init__.py`

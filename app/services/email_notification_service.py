@@ -27,7 +27,8 @@ class EmailNotificationService:
     def send_analysis_notifications(
         self,
         analysis_result: Dict[str, Any],
-        current_date: str
+        current_date: str,
+        is_testing: bool = False
     ) -> Dict[str, Any]:
         """
         Send email notifications to all ejecutivos in analysis result.
@@ -35,16 +36,19 @@ class EmailNotificationService:
         Args:
             analysis_result: Result from analysis service
             current_date: Current date for context
+            is_testing: If True, only send to ejecutivos with test_correo field
             
         Returns:
             Dict with keys:
                 - total_sent: int
                 - total_failed: int
+                - total_skipped: int (only in testing mode)
                 - notifications: List[Dict] with details of each email
         """
         notifications = []
         sent_count = 0
         failed_count = 0
+        skipped_count = 0
         
         # Extract ejecutivos from analysis
         data = analysis_result.get("data", {})
@@ -55,17 +59,39 @@ class EmailNotificationService:
             return {
                 "total_sent": 0,
                 "total_failed": 0,
+                "total_skipped": 0,
                 "notifications": []
             }
+        
+        # Log testing mode
+        if is_testing:
+            self._logger.info("TESTING MODE: Only sending to ejecutivos with test_correo field")
         
         # Send email to each ejecutivo
         for ejecutivo in ejecutivos:
             try:
                 # Extract ejecutivo data
                 correo = ejecutivo.get("correo")
+                test_correo = ejecutivo.get("test_correo")
                 nombre = ejecutivo.get("nombre", "Ejecutivo")
                 
-                if not correo:
+                # In testing mode, skip ejecutivos without test_correo
+                if is_testing and not test_correo:
+                    self._logger.info(f"Skipping {nombre} (no test_correo field)")
+                    notifications.append({
+                        "ejecutivo": nombre,
+                        "recipient": None,
+                        "subject": None,
+                        "status": "skipped",
+                        "error": "Testing mode: no test_correo field"
+                    })
+                    skipped_count += 1
+                    continue
+                
+                # Use test_correo if in testing mode, otherwise use regular correo
+                email_to_send = test_correo if is_testing else correo
+                
+                if not email_to_send:
                     self._logger.warning(
                         f"No email found for ejecutivo: {nombre}"
                     )
@@ -81,11 +107,14 @@ class EmailNotificationService:
                 
                 # Format email
                 subject = f"Reporte diario Coach Ejecutivo ({nombre})"
+                if is_testing:
+                    subject = f"[TEST] {subject}"
+                
                 html_content = self._format_email_html(ejecutivo, current_date)
                 
                 # Send email
                 result = self._email_client.send_email(
-                    to_email=correo,
+                    to_email=email_to_send,
                     subject=subject,
                     html_content=html_content
                 )
@@ -95,6 +124,8 @@ class EmailNotificationService:
                     "ejecutivo": nombre,
                     "recipient": result.get("recipient"),
                     "original_recipient": result.get("original_recipient"),
+                    "test_mode": is_testing,
+                    "test_correo": test_correo if is_testing else None,
                     "subject": subject,
                     "body": html_content,
                     "status": "success" if result["success"] else "failed",
@@ -125,6 +156,7 @@ class EmailNotificationService:
         return {
             "total_sent": sent_count,
             "total_failed": failed_count,
+            "total_skipped": skipped_count,
             "notifications": notifications
         }
     
@@ -187,6 +219,7 @@ class EmailNotificationService:
             status_emoji = "🔴"
         
         # Progress bar
+        avance_pct = avance_pct or 0  # Handle None case
         if avance_pct < 0.3:
             progress_color = "#dc3545"
         elif avance_pct < avance_esperado:
@@ -195,6 +228,7 @@ class EmailNotificationService:
             progress_color = "#28a745"
         
         progress_width = int(min(avance_pct * 100, 100))
+        progress_remaining = 100 - progress_width
         
         # Build HTML - Outlook compatible (ONLY inline styles, NO <style> tag)
         html = f"""<!DOCTYPE html>
@@ -236,7 +270,7 @@ class EmailNotificationService:
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e0e0e0;height:30px;">
 <tr>
 <td width="{progress_width}%" style="background-color:{progress_color};color:#ffffff;text-align:center;font-weight:bold;font-size:14px;padding:5px 0;">{avance_pct:.1%}</td>
-<td width="{100-progress_width}%" style="background-color:#e0e0e0;"></td>
+<td width="{progress_remaining}%" style="background-color:#e0e0e0;"></td>
 </tr>
 </table>
 </td></tr>
